@@ -13,21 +13,97 @@ import '../../../paquetes/presentation/providers/paquete_provider.dart';
 import '../../../paquetes/presentation/screens/paquetes_screen.dart';
 import 'formulario_lote_screen.dart';
 
-class LoteDetalleScreen extends ConsumerStatefulWidget {
+// =========================================================================
+// UTILIDADES (DRY)
+// =========================================================================
+class PaqueteUtils {
+  static List<PaqueteModel> filtrar(List<PaqueteModel> paquetes, String query, String tipoFiltro) {
+    if (query.isEmpty) return paquetes;
+    final q = query.toLowerCase();
+    
+    return paquetes.where((p) {
+      switch (tipoFiltro) {
+        case 'Guía':
+          return p.guiaRastreo.toLowerCase().contains(q);
+        case 'Origen':
+          final origen = p.remitenteOrigen?.toLowerCase() ?? '';
+          final remitente = p.remitenteNombre.toLowerCase();
+          return origen.contains(q) || remitente.contains(q);
+        case 'Destino':
+          final destino = p.destinatarioOrigen?.toLowerCase() ?? '';
+          final destinatario = p.destinatarioNombre.toLowerCase();
+          return destino.contains(q) || destinatario.contains(q);
+        default:
+          return true;
+      }
+    }).toList();
+  }
+}
+
+// =========================================================================
+// WIDGET MAESTRO (DRY)
+// =========================================================================
+class SharedModalLayout extends StatelessWidget {
+  final String titulo;
+  final Widget buscador;
+  final Widget listado;
+  final Widget? cabeceraExtra;
+  final Widget? piePagina;
+
+  const SharedModalLayout({
+    super.key,
+    required this.titulo,
+    required this.buscador,
+    required this.listado,
+    this.cabeceraExtra,
+    this.piePagina,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: MediaQuery.of(context).size.width,
+      height: MediaQuery.of(context).size.height * 0.9,
+      decoration: const BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(titulo, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20.0),
+            child: buscador,
+          ),
+          if (cabeceraExtra != null) cabeceraExtra!,
+          if (cabeceraExtra == null) const Divider(height: 30),
+          Expanded(child: listado),
+          if (piePagina != null) piePagina!,
+        ],
+      ),
+    );
+  }
+}
+
+// =========================================================================
+// PANTALLA PRINCIPAL (SIN BUSCADOR)
+// =========================================================================
+class LoteDetalleScreen extends ConsumerWidget {
   final int loteId;
   const LoteDetalleScreen({super.key, required this.loteId});
 
   @override
-  ConsumerState<LoteDetalleScreen> createState() => _LoteDetalleScreenState();
-}
-
-class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> {
-  String _searchQuery = '';
-  String _filterType = 'Guía';
-
-  @override
-  Widget build(BuildContext context) {
-    final detalleState = ref.watch(loteDetalleProvider(widget.loteId));
+  Widget build(BuildContext context, WidgetRef ref) {
+    final detalleState = ref.watch(loteDetalleProvider(loteId));
 
     return Scaffold(
       appBar: AppBar(
@@ -52,26 +128,8 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) => _buildErrorView(ref, error.toString()),
         data: (lote) {
-          final paquetesRaw = lote.paquetes ?? [];
-
-          final paquetes = paquetesRaw.where((p) {
-            if (_searchQuery.isEmpty) return true;
-            final q = _searchQuery.toLowerCase();
-            switch (_filterType) {
-              case 'Guía':
-                return p.guiaRastreo.toLowerCase().contains(q);
-              case 'Origen':
-                final origen = p.remitenteOrigen?.toLowerCase() ?? '';
-                final remitente = p.remitenteNombre.toLowerCase();
-                return origen.contains(q) || remitente.contains(q);
-              case 'Destino':
-                final destino = p.destinatarioOrigen?.toLowerCase() ?? '';
-                final destinatario = p.destinatarioNombre.toLowerCase();
-                return destino.contains(q) || destinatario.contains(q);
-              default:
-                return true;
-            }
-          }).toList();
+          // Ya no filtramos, mostramos todos los del viaje tal cual
+          final paquetes = lote.paquetes ?? [];
 
           return CustomScrollView(
             slivers: [
@@ -91,58 +149,44 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> {
                       const Divider(height: 30),
                       
                       if (lote.estatusLote != 'Finalizado')
-                        // FIX DEFINITIVO: SizedBox con maxFinite previene crashes de layout
-                        SizedBox(
-                          width: double.maxFinite,
-                          height: 50,
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)),
-                              );
-                            },
-                            icon: const Icon(Icons.update),
-                            label: const Text('ACTUALIZAR RASTREO / ESTATUS'),
-                          ),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: SizedBox(
+                                height: 50,
+                                child: OutlinedButton.icon(
+                                  onPressed: () {
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)),
+                                    );
+                                  },
+                                  icon: const Icon(Icons.update),
+                                  label: const Text('ACTUALIZAR RASTREO / ESTATUS'),
+                                ),
+                              ),
+                            ),
+                          ],
                         )
                     ],
                   ),
                 ),
               ),
 
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 20, left: 20, right: 20, bottom: 10),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+              SliverPadding(
+                padding: const EdgeInsets.all(20),
+                sliver: SliverToBoxAdapter(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Text('Manifiesto de Carga', style: Theme.of(context).textTheme.titleLarge),
-                          Text('${paquetesRaw.length} cajas', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      if (paquetesRaw.isNotEmpty)
-                        BuscadorFiltroWidget(
-                          filterType: _filterType,
-                          filterOptions: const ['Guía', 'Destino', 'Origen'],
-                          onFilterChanged: (val) => setState(() => _filterType = val),
-                          onSearchChanged: (val) => setState(() => _searchQuery = val),
-                          onScanPressed: () async {
-                            FocusScope.of(context).unfocus();
-                            final barcode = await Navigator.push<String>(context, MaterialPageRoute(builder: (context) => const EscanerScreen()));
-                            if (barcode != null && barcode.isNotEmpty) setState(() => _searchQuery = barcode);
-                          },
-                        ),
+                      Text('Manifiesto de Carga', style: Theme.of(context).textTheme.titleLarge),
+                      Text('${paquetes.length} cajas', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
                     ],
                   ),
                 ),
               ),
 
-              if (paquetesRaw.isEmpty)
+              if (paquetes.isEmpty)
                 const SliverToBoxAdapter(
                   child: Center(
                     child: Padding(
@@ -150,16 +194,6 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> {
                       child: Text('El viaje está vacío. Asigna paquetes para empezar.', 
                         textAlign: TextAlign.center,
                         style: TextStyle(color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
-                    ),
-                  ),
-                )
-              else if (paquetes.isEmpty)
-                const SliverToBoxAdapter(
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(40.0),
-                      child: Text('No hay paquetes que coincidan con la búsqueda.', 
-                        style: TextStyle(color: AppColors.textSecondary)),
                     ),
                   ),
                 )
@@ -330,7 +364,7 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> {
           const SizedBox(height: 16),
           Text(error, textAlign: TextAlign.center),
           ElevatedButton(
-            onPressed: () => ref.refresh(loteDetalleProvider(widget.loteId)),
+            onPressed: () => ref.refresh(loteDetalleProvider(loteId)),
             child: const Text('Reintentar'),
           )
         ],
@@ -340,7 +374,7 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> {
 }
 
 // =========================================================================
-// MODAL DE ENTREGAS CON BUSCADOR Y TARJETAS (NUEVO LAYOUT SEGURO)
+// MODAL DE ENTREGAS CON EL COMPONENTE COMPARTIDO
 // =========================================================================
 class ModalEntregaPaquetes extends ConsumerStatefulWidget {
   final LoteModel lote;
@@ -359,7 +393,7 @@ class _ModalEntregaPaquetesState extends ConsumerState<ModalEntregaPaquetes> {
     setState(() => _isLoading = true);
     try {
       if (paquete.estatusPaquete == 'Entregado') throw Exception('Ese paquete ya fue entregado anteriormente.');
-
+      
       final usuarioActivo = ref.read(authProvider).user;
 
       await ref.read(paqueteRepositoryProvider).actualizarPaquete({
@@ -394,94 +428,54 @@ class _ModalEntregaPaquetesState extends ConsumerState<ModalEntregaPaquetes> {
     final loteState = ref.watch(loteDetalleProvider(widget.lote.id)).value ?? widget.lote;
     final paquetesEnCamioneta = loteState.paquetes ?? [];
     
-    final paquetesFiltrados = paquetesEnCamioneta.where((p) {
-      if (p.estatusPaquete == 'Entregado') return false; 
-      if (_searchQuery.isEmpty) return true;
-      
-      final q = _searchQuery.toLowerCase();
-      switch (_filterType) {
-        case 'Guía': return p.guiaRastreo.toLowerCase().contains(q);
-        case 'Origen': return (p.remitenteOrigen?.toLowerCase() ?? '').contains(q) || p.remitenteNombre.toLowerCase().contains(q);
-        case 'Destino': return (p.destinatarioOrigen?.toLowerCase() ?? '').contains(q) || p.destinatarioNombre.toLowerCase().contains(q);
-        default: return true;
-      }
-    }).toList();
+    final paquetesPendientes = paquetesEnCamioneta.where((p) => p.estatusPaquete != 'Entregado').toList();
+    final paquetesFiltrados = PaqueteUtils.filtrar(paquetesPendientes, _searchQuery, _filterType);
 
-    // FIX DEFINITIVO: Container explícito con altura y decoraciones.
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.9,
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    return SharedModalLayout(
+      titulo: 'Entregar Paquete',
+      buscador: BuscadorFiltroWidget(
+        filterType: _filterType,
+        filterOptions: const ['Guía', 'Destino', 'Origen'],
+        onFilterChanged: (val) => setState(() => _filterType = val),
+        onSearchChanged: (val) => setState(() => _searchQuery = val),
+        onScanPressed: () async {
+          FocusScope.of(context).unfocus();
+          final barcode = await Navigator.push<String>(context, MaterialPageRoute(builder: (context) => const EscanerScreen()));
+          if (barcode != null && barcode.isNotEmpty) {
+            final p = paquetesEnCamioneta.where((p) => p.guiaRastreo == barcode).firstOrNull;
+            if (p != null) {
+              _procesarEntrega(p); 
+            } else {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Esa caja no viene en este viaje.'), backgroundColor: AppColors.error));
+            }
+          }
+        },
       ),
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Entregar Paquete', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-              ],
-            ),
-          ),
-          
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0),
-            child: BuscadorFiltroWidget(
-              filterType: _filterType,
-              filterOptions: const ['Guía', 'Destino', 'Origen'],
-              onFilterChanged: (val) => setState(() => _filterType = val),
-              onSearchChanged: (val) => setState(() => _searchQuery = val),
-              onScanPressed: () async {
-                FocusScope.of(context).unfocus();
-                final barcode = await Navigator.push<String>(
-                  context, MaterialPageRoute(builder: (context) => const EscanerScreen())
+      listado: _isLoading 
+        ? const Center(child: CircularProgressIndicator())
+        : paquetesFiltrados.isEmpty
+          ? const Center(child: Text('No hay paquetes pendientes que coincidan.', style: TextStyle(color: Colors.grey)))
+          : ListView.builder(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              itemCount: paquetesFiltrados.length,
+              itemBuilder: (context, index) {
+                final paquete = paquetesFiltrados[index];
+                return PaqueteCardWidget(
+                  paquete: paquete,
+                  trailing: ElevatedButton(
+                    style: ElevatedButton.styleFrom(backgroundColor: AppColors.highlight),
+                    onPressed: () => _procesarEntrega(paquete),
+                    child: const Text('ENTREGAR', style: TextStyle(color: Colors.white, fontSize: 12)),
+                  ),
                 );
-                if (barcode != null && barcode.isNotEmpty) {
-                  final p = paquetesEnCamioneta.where((p) => p.guiaRastreo == barcode).firstOrNull;
-                  if (p != null) {
-                    _procesarEntrega(p); 
-                  } else {
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Esa caja no viene en este viaje.'), backgroundColor: AppColors.error));
-                  }
-                }
               },
             ),
-          ),
-          const Divider(height: 30),
-
-          Expanded(
-            child: _isLoading 
-              ? const Center(child: CircularProgressIndicator())
-              : paquetesFiltrados.isEmpty
-                ? const Center(child: Text('No hay paquetes pendientes que coincidan.', style: TextStyle(color: Colors.grey)))
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: paquetesFiltrados.length,
-                    itemBuilder: (context, index) {
-                      final paquete = paquetesFiltrados[index];
-                      return PaqueteCardWidget(
-                        paquete: paquete,
-                        trailing: ElevatedButton(
-                          style: ElevatedButton.styleFrom(backgroundColor: AppColors.highlight),
-                          onPressed: () => _procesarEntrega(paquete),
-                          child: const Text('ENTREGAR', style: TextStyle(color: Colors.white, fontSize: 12)),
-                        ),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
     );
   }
 }
 
-
 // =========================================================================
-// LA CONSOLA DE ASIGNACIÓN MASIVA (NUEVO LAYOUT SEGURO)
+// MODAL DE ASIGNACIÓN MASIVA
 // =========================================================================
 class ModalCargaMasiva extends ConsumerStatefulWidget {
   final int loteId;
@@ -499,11 +493,9 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
 
   Future<void> _guardarAsignacion() async {
     if (_selectedIds.isEmpty) return;
-
     setState(() => _isLoading = true);
     try {
       await ref.read(loteRepositoryProvider).asignarPaquetesALote(widget.loteId, _selectedIds.toList());
-      
       ref.invalidate(loteDetalleProvider(widget.loteId));
       ref.invalidate(paquetesProvider);
 
@@ -526,85 +518,41 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
   Widget build(BuildContext context) {
     final todosLosPaquetes = ref.watch(paquetesProvider).value ?? [];
     final paquetesDisponibles = todosLosPaquetes.where((p) => p.estatusPaquete == 'Recibido').toList();
-
-    final paquetesFiltrados = paquetesDisponibles.where((p) {
-      if (_searchQuery.isEmpty) return true;
-      final q = _searchQuery.toLowerCase();
-      
-      switch (_filterType) {
-        case 'Guía':
-          return p.guiaRastreo.toLowerCase().contains(q);
-        case 'Origen':
-          final origen = p.remitenteOrigen?.toLowerCase() ?? '';
-          final remitente = p.remitenteNombre.toLowerCase();
-          return origen.contains(q) || remitente.contains(q);
-        case 'Destino':
-          final destino = p.destinatarioOrigen?.toLowerCase() ?? '';
-          final destinatario = p.destinatarioNombre.toLowerCase();
-          return destino.contains(q) || destinatario.contains(q);
-        default:
-          return true;
-      }
-    }).toList();
+    final paquetesFiltrados = PaqueteUtils.filtrar(paquetesDisponibles, _searchQuery, _filterType);
 
     bool todosSeleccionados = paquetesFiltrados.isNotEmpty && 
                               paquetesFiltrados.every((p) => _selectedIds.contains(p.id));
 
-    // FIX DEFINITIVO: Container explícito en lugar de FractionallySizedBox
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.9,
-      decoration: const BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+    return SharedModalLayout(
+      titulo: 'Asignar Paquetes',
+      buscador: BuscadorFiltroWidget(
+        filterType: _filterType,
+        filterOptions: const ['Destino', 'Origen', 'Guía'],
+        onFilterChanged: (val) => setState(() => _filterType = val),
+        onSearchChanged: (val) => setState(() => _searchQuery = val),
+        onScanPressed: () async {
+          FocusScope.of(context).unfocus();
+          final barcode = await Navigator.push<String>(context, MaterialPageRoute(builder: (context) => const EscanerScreen()));
+          if (barcode != null && barcode.isNotEmpty) {
+            final p = paquetesDisponibles.where((p) => p.guiaRastreo == barcode).firstOrNull;
+            if (p != null) {
+              setState(() => _selectedIds.add(p.id));
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paquete agregado a la selección')));
+            } else {
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Código no encontrado o ya asignado'), backgroundColor: AppColors.error));
+            }
+          }
+        },
       ),
-      child: Column(
+      cabeceraExtra: Column(
         children: [
-          Padding(
-            padding: const EdgeInsets.all(20.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Asignar Paquetes', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(context)),
-              ],
-            ),
-          ),
-          
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20.0),
-            child: BuscadorFiltroWidget(
-              filterType: _filterType,
-              filterOptions: const ['Destino', 'Origen', 'Guía'],
-              onFilterChanged: (val) => setState(() => _filterType = val),
-              onSearchChanged: (val) => setState(() => _searchQuery = val),
-              onScanPressed: () async {
-                FocusScope.of(context).unfocus();
-                final barcode = await Navigator.push<String>(
-                  context, MaterialPageRoute(builder: (context) => const EscanerScreen())
-                );
-                if (barcode != null && barcode.isNotEmpty) {
-                  final p = paquetesDisponibles.where((p) => p.guiaRastreo == barcode).firstOrNull;
-                  if (p != null) {
-                    setState(() => _selectedIds.add(p.id));
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paquete agregado a la selección')));
-                  } else {
-                    if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Código no encontrado o ya asignado'), backgroundColor: AppColors.error));
-                  }
-                }
-              },
-            ),
-          ),
           const Divider(height: 10),
-
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '${paquetesFiltrados.length} resultados', 
-                  style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold)
-                ),
+                Text('${paquetesFiltrados.length} resultados', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
                 if (paquetesFiltrados.isNotEmpty)
                   Row(
                     children: [
@@ -627,66 +575,68 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
               ],
             ),
           ),
-
-          Expanded(
-            child: paquetesFiltrados.isEmpty
-                ? const Center(child: Text('No hay paquetes libres con ese filtro.', style: TextStyle(color: Colors.grey)))
-                : ListView.builder(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    itemCount: paquetesFiltrados.length,
-                    itemBuilder: (context, index) {
-                      final paquete = paquetesFiltrados[index];
-                      final isSelected = _selectedIds.contains(paquete.id);
-
-                      return PaqueteCardWidget(
-                        paquete: paquete,
-                        leading: Checkbox(
-                          value: isSelected,
-                          activeColor: AppColors.primary,
-                          onChanged: (bool? checked) {
-                            setState(() {
-                              if (checked == true) {
-                                _selectedIds.add(paquete.id);
-                              } else {
-                                _selectedIds.remove(paquete.id);
-                              }
-                            });
-                          },
-                        ),
-                        onTap: () {
-                          setState(() {
-                            if (isSelected) {
-                              _selectedIds.remove(paquete.id);
-                            } else {
-                              _selectedIds.add(paquete.id);
-                            }
-                          });
-                        },
-                      );
-                    },
-                  ),
-          ),
-
-          Container(
-            padding: const EdgeInsets.all(20),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))],
-            ),
-            // FIX DEFINITIVO: SizedBox seguro con maxFinite en lugar de double.infinity o Row
-            child: SizedBox(
-              width: double.maxFinite,
-              height: 56,
-              child: ElevatedButton(
-                style: ElevatedButton.styleFrom(backgroundColor: _selectedIds.isEmpty ? Colors.grey : AppColors.primary),
-                onPressed: _selectedIds.isEmpty || _isLoading ? null : _guardarAsignacion,
-                child: _isLoading 
-                    ? const CircularProgressIndicator(color: Colors.white)
-                    : Text('ASIGNAR ${_selectedIds.length} PAQUETES'),
-              ),
-            ),
-          )
         ],
+      ),
+      listado: paquetesFiltrados.isEmpty
+        ? const Center(child: Text('No hay paquetes libres con ese filtro.', style: TextStyle(color: Colors.grey)))
+        : ListView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            itemCount: paquetesFiltrados.length,
+            itemBuilder: (context, index) {
+              final paquete = paquetesFiltrados[index];
+              final isSelected = _selectedIds.contains(paquete.id);
+
+              return PaqueteCardWidget(
+                paquete: paquete,
+                leading: Checkbox(
+                  value: isSelected,
+                  activeColor: AppColors.primary,
+                  onChanged: (bool? checked) {
+                    setState(() {
+                      if (checked == true) {
+                        _selectedIds.add(paquete.id);
+                      } else {
+                        _selectedIds.remove(paquete.id);
+                      }
+                    });
+                  },
+                ),
+                onTap: () {
+                  setState(() {
+                    if (isSelected) {
+                      _selectedIds.remove(paquete.id);
+                    } else {
+                      _selectedIds.add(paquete.id);
+                    }
+                  });
+                },
+              );
+            },
+          ),
+      piePagina: Container(
+        width: MediaQuery.of(context).size.width,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: 0.05), blurRadius: 10, offset: const Offset(0, -5))],
+        ),
+        child: SizedBox(
+          width: MediaQuery.of(context).size.width,
+          height: 56,
+          child: ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: _selectedIds.isEmpty ? Colors.grey : AppColors.primary,
+            ),
+            onPressed: _selectedIds.isEmpty || _isLoading ? null : _guardarAsignacion,
+            child: _isLoading 
+                ? const SizedBox(
+                    height: 24, 
+                    width: 24, 
+                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3)
+                  )
+                : Text('ASIGNAR ${_selectedIds.length} PAQUETES'),
+          ),
+        ),
       ),
     );
   }

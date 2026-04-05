@@ -50,7 +50,7 @@ class AppTheme {
           backgroundColor: AppColors.primary,
           foregroundColor: AppColors.textOnPrimary,
           elevation: 0,
-          minimumSize: const Size(double.infinity, 56),
+          minimumSize: const Size(0, 56),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           textStyle: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600),
         ),
