@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../core/theme/app_colors.dart';
 import '../../../../core/presentation/widgets/custom_text_form_field.dart';
+import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/lote_model.dart';
 import '../providers/lote_provider.dart';
 
@@ -19,8 +19,22 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   final _formKey = GlobalKey<FormState>();
   final _nombreController = TextEditingController();
   final _ubicacionController = TextEditingController();
-  String _estatusLote = 'Preparación';
-  bool _isLoading = false;
+  
+  String _estatusSeleccionado = 'Preparación';
+  String _tipoViajeSeleccionado = 'Principal'; // NUEVO: Valor por defecto
+
+  final List<String> _opcionesEstatus = [
+    'Preparación',
+    'En Tránsito',
+    'En Aduana',
+    'En Bodega México',
+    'Finalizado'
+  ];
+
+  final List<String> _opcionesTipoViaje = [
+    'Principal',
+    'Reparto'
+  ];
 
   bool get _esEdicion => widget.loteAEditar != null;
 
@@ -30,9 +44,8 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     if (_esEdicion) {
       _nombreController.text = widget.loteAEditar!.nombreViaje;
       _ubicacionController.text = widget.loteAEditar!.ubicacionActual;
-      _estatusLote = widget.loteAEditar!.estatusLote;
-    } else {
-      _ubicacionController.text = 'Bodega Principal'; // Valor por defecto
+      _estatusSeleccionado = widget.loteAEditar!.estatusLote;
+      _tipoViajeSeleccionado = widget.loteAEditar!.tipoViaje; // Cargamos el tipo de viaje actual
     }
   }
 
@@ -43,95 +56,143 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     super.dispose();
   }
 
-  Future<void> _guardar() async {
+  Future<void> _guardarLote() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
     try {
-      final repo = ref.read(loteRepositoryProvider);
-      
+      final repository = ref.read(loteRepositoryProvider);
+
       if (_esEdicion) {
-        await repo.actualizarLote({
+        // Envolvemos los datos en { } para enviar un Map<String, dynamic>
+        await repository.actualizarLote({
           'id': widget.loteAEditar!.id,
-          'nombre_viaje': _nombreController.text,
-          'estatus_lote': _estatusLote,
-          'ubicacion_actual': _ubicacionController.text,
+          'nombre_viaje': _nombreController.text.trim(),
+          'tipo_viaje': _tipoViajeSeleccionado,
+          'estatus_lote': _estatusSeleccionado,
+          'ubicacion_actual': _ubicacionController.text.trim(),
         });
-        ref.invalidate(loteDetalleProvider(widget.loteAEditar!.id));
       } else {
-        await repo.crearLote({
-          'nombre_viaje': _nombreController.text,
-          'estatus_lote': _estatusLote,
-          'ubicacion_actual': _ubicacionController.text,
+        // Envolvemos los datos en { } para enviar un Map<String, dynamic>
+        await repository.crearLote({
+          'nombre_viaje': _nombreController.text.trim(),
+          'tipo_viaje': _tipoViajeSeleccionado,
+          'estatus_lote': _estatusSeleccionado,
+          'ubicacion_actual': _ubicacionController.text.trim(),
         });
       }
 
-      ref.read(lotesProvider.notifier).refresh(); // Actualizamos la lista principal
-      
+      ref.invalidate(lotesProvider);
+      if (_esEdicion) {
+        ref.invalidate(loteDetalleProvider(widget.loteAEditar!.id));
+      }
+
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_esEdicion ? 'Viaje actualizado' : 'Viaje creado'), backgroundColor: AppColors.success)
+          SnackBar(
+            content: Text(_esEdicion ? 'Viaje actualizado exitosamente' : 'Viaje creado exitosamente'),
+            backgroundColor: AppColors.success,
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error),
+        );
       }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_esEdicion ? 'Editar Viaje' : 'Nuevo Viaje')),
+      appBar: AppBar(
+        title: Text(_esEdicion ? 'Actualizar Rastreo / Viaje' : 'Nuevo Viaje / Ruta'),
+        centerTitle: true,
+      ),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(24.0),
         child: Form(
           key: _formKey,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              const Text('Información General', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const SizedBox(height: 16),
+              
               CustomTextFormField(
-                label: 'Nombre del Viaje (Ej. Ruta Norte 01)',
-                icon: Icons.route,
+                label: 'Nombre del Viaje o Ruta',
+                icon: Icons.local_shipping,
                 controller: _nombreController,
-                validator: (v) => v!.isEmpty ? 'Requerido' : null,
+                validator: (v) => v!.isEmpty ? 'Ingresa un nombre para identificar el viaje' : null,
               ),
               const SizedBox(height: 16),
+
+              // --- NUEVO: DROPDOWN PARA TIPO DE VIAJE ---
+              DropdownButtonFormField<String>(
+                value: _tipoViajeSeleccionado,
+                decoration: InputDecoration(
+                  labelText: 'Tipo de Viaje',
+                  prefixIcon: const Icon(Icons.route),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                  fillColor: Colors.white,
+                ),
+                items: _opcionesTipoViaje.map((tipo) {
+                  return DropdownMenuItem(
+                    value: tipo,
+                    child: Text(tipo == 'Principal' ? 'Viaje Internacional (USA -> MX)' : 'Ruta Local (Reparto en MX)'),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _tipoViajeSeleccionado = val!;
+                  });
+                },
+              ),
+              const SizedBox(height: 32),
+
+              const Text('Rastreo y Estatus', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              const SizedBox(height: 16),
+
               CustomTextFormField(
                 label: 'Ubicación Actual',
                 icon: Icons.location_on,
                 controller: _ubicacionController,
-                validator: (v) => v!.isEmpty ? 'Requerido' : null,
+                validator: (v) => v!.isEmpty ? 'La ubicación es requerida' : null,
               ),
               const SizedBox(height: 16),
-              
-              const Text('Estatus del Viaje', style: TextStyle(color: AppColors.textSecondary, fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
+
               DropdownButtonFormField<String>(
-                value: _estatusLote,
+                value: _estatusSeleccionado,
                 decoration: InputDecoration(
+                  labelText: 'Estatus del Viaje',
+                  prefixIcon: const Icon(Icons.timeline),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true,
                   fillColor: Colors.white,
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                 ),
-                items: ['Preparación', 'En Tránsito', 'En Aduana', 'En Bodega México', 'Finalizado']
-                    .map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-                onChanged: (val) => setState(() => _estatusLote = val!),
+                items: _opcionesEstatus.map((estatus) {
+                  return DropdownMenuItem(
+                    value: estatus,
+                    child: Text(estatus),
+                  );
+                }).toList(),
+                onChanged: (val) {
+                  setState(() {
+                    _estatusSeleccionado = val!;
+                  });
+                },
               ),
-              
+
               const SizedBox(height: 40),
               SizedBox(
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: _isLoading ? null : _guardar,
-                  child: _isLoading 
-                    ? const CircularProgressIndicator(color: Colors.white) 
-                    : Text(_esEdicion ? 'GUARDAR CAMBIOS' : 'CREAR VIAJE'),
+                  onPressed: _guardarLote,
+                  child: Text(_esEdicion ? 'ACTUALIZAR VIAJE' : 'CREAR VIAJE'),
                 ),
               )
             ],

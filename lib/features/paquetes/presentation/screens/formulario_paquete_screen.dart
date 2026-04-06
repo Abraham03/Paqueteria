@@ -1,14 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../../core/presentation/widgets/custom_text_form_field.dart';
+import '../../../lotes/domain/models/lote_model.dart';
 import '../../domain/models/paquete_model.dart';
 import '../providers/paquete_form_provider.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 
+// Importamos los catálogos
+// Ajusta esta ruta según la carpeta donde hayas guardado el catalogo_provider
+import '../../../catalogos/presentation/providers/catalogo_provider.dart'; 
+import '../../../catalogos/domain/models/ubicacion_model.dart';
+
 class FormularioPaqueteScreen extends ConsumerStatefulWidget {
   final PaqueteModel? paqueteAEditar;
+  final LoteModel? loteAsociado;
 
-  const FormularioPaqueteScreen({super.key, this.paqueteAEditar});
+  const FormularioPaqueteScreen({super.key, this.paqueteAEditar, this.loteAsociado});
 
   @override
   ConsumerState<FormularioPaqueteScreen> createState() => _FormularioPaqueteScreenState();
@@ -30,12 +38,16 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
   final _itemDescController = TextEditingController();
   final _itemCantController = TextEditingController();
 
+  // --- NUEVAS VARIABLES PARA LOS CATÁLOGOS ---
+  int? _idEstadoDestino;
+  int? _idMunicipioDestino;
+  int? _idLocalidadDestino;
+
   bool get _esEdicion => widget.paqueteAEditar != null;
 
   @override
   void initState() {
     super.initState();
-    // MAGIA DRY: Si nos pasan un paquete, rellenamos los controles
     if (_esEdicion) {
       final p = widget.paqueteAEditar!;
       
@@ -46,15 +58,18 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
       _destinatarioController.text = p.destinatarioNombre;
       _destinatarioTelController.text = p.destinatarioContacto ?? ''; 
       
+      // Cargamos los IDs de ubicación si los tiene
+      _idEstadoDestino = p.idEstadoDestino;
+      _idMunicipioDestino = p.idMunicipioDestino;
+      _idLocalidadDestino = p.idLocalidadDestino;
+
       _pesoController.text = p.pesoCantidad.toString();
       _pesoUnidad = p.pesoUnidad;
       
-      // SOLUCIÓN AL ERROR DE RIVERPOD: Envolver la llamada en un Future
       Future.microtask(() {
         ref.read(paqueteFormProvider.notifier).cargarItemsIniciales(p.items);
       });
     } else {
-      // SOLUCIÓN AL ERROR DE RIVERPOD: Envolver la llamada en un Future
       Future.microtask(() {
         ref.read(paqueteFormProvider.notifier).limpiarItems();
       });
@@ -94,6 +109,19 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
   }
 
   Step _buildStepDirectorio() {
+    // 1. Cargamos el estado de los providers de catálogo
+    final estadosAsync = ref.watch(estadosProvider);
+    
+    // 2. Si hay un estado seleccionado, pedimos sus municipios
+    final municipiosAsync = _idEstadoDestino != null 
+        ? ref.watch(municipiosProvider(_idEstadoDestino!)) 
+        : const AsyncValue.data(<UbicacionModel>[]);
+        
+    // 3. Si hay un municipio seleccionado, pedimos sus localidades
+    final localidadesAsync = _idMunicipioDestino != null 
+        ? ref.watch(localidadesProvider(_idMunicipioDestino!)) 
+        : const AsyncValue.data(<UbicacionModel>[]);
+
     return Step(
       isActive: _currentStep >= 0,
       state: _currentStep > 0 ? StepState.complete : StepState.editing,
@@ -116,10 +144,11 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
               controller: _remitenteTelController,
             ),
             CustomTextFormField(
-              label: 'Origen (Ciudad)',
+              label: 'Origen (Ciudad USA)',
               icon: Icons.location_city,
               controller: _origenController,
             ),
+            
             const Divider(height: 32),
             const Text('Datos del Destinatario', style: TextStyle(fontWeight: FontWeight.bold)),
             CustomTextFormField(
@@ -134,14 +163,103 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
               keyboardType: TextInputType.phone,
               controller: _destinatarioTelController,
             ),
+
+            const SizedBox(height: 16),
+            const Text('Dirección de Destino (México)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+            const SizedBox(height: 12),
+
+            // --- DROPDOWN: ESTADOS ---
+            _buildDropdownCatalogo(
+              label: 'Estado',
+              icon: Icons.map,
+              asyncValue: estadosAsync,
+              value: _idEstadoDestino,
+              onChanged: (val) {
+                setState(() {
+                  _idEstadoDestino = val;
+                  // Al cambiar estado, limpiamos municipio y localidad
+                  _idMunicipioDestino = null;
+                  _idLocalidadDestino = null;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // --- DROPDOWN: MUNICIPIOS ---
+            _buildDropdownCatalogo(
+              label: 'Municipio',
+              icon: Icons.location_city_outlined,
+              asyncValue: municipiosAsync,
+              value: _idMunicipioDestino,
+              enabled: _idEstadoDestino != null,
+              onChanged: (val) {
+                setState(() {
+                  _idMunicipioDestino = val;
+                  // Al cambiar municipio, limpiamos localidad
+                  _idLocalidadDestino = null;
+                });
+              },
+            ),
+            const SizedBox(height: 12),
+
+            // --- DROPDOWN: LOCALIDADES ---
+            _buildDropdownCatalogo(
+              label: 'Localidad / Colonia',
+              icon: Icons.pin_drop_outlined,
+              asyncValue: localidadesAsync,
+              value: _idLocalidadDestino,
+              enabled: _idMunicipioDestino != null,
+              onChanged: (val) {
+                setState(() {
+                  _idLocalidadDestino = val;
+                });
+              },
+            ),
           ],
         ),
       ),
     );
   }
 
+  // --- WIDGET REUTILIZABLE PARA LOS DROPDOWNS (DRY) ---
+  Widget _buildDropdownCatalogo({
+    required String label,
+    required IconData icon,
+    required AsyncValue<List<UbicacionModel>> asyncValue,
+    required int? value,
+    required void Function(int?) onChanged,
+    bool enabled = true,
+  }) {
+    return asyncValue.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (e, s) => Text('Error al cargar $label', style: const TextStyle(color: Colors.red)),
+      data: (lista) {
+        // Aseguramos que el valor exista en la lista (previene crashes si se borró un catálogo)
+        final isValidValue = lista.any((item) => item.id == value);
+        final safeValue = isValidValue ? value : null;
+
+        return DropdownButtonFormField<int>(
+          decoration: InputDecoration(
+            labelText: label,
+            prefixIcon: Icon(icon),
+            border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+            filled: true,
+            fillColor: enabled ? Colors.white : Colors.grey.shade100,
+          ),
+          value: safeValue,
+          isExpanded: true,
+          hint: Text(enabled ? 'Seleccionar $label' : 'Primero selecciona la opción anterior'),
+          items: enabled 
+              ? lista.map((u) => DropdownMenuItem(value: u.id, child: Text(u.nombre))).toList() 
+              : null,
+          onChanged: enabled ? onChanged : null,
+          validator: (v) => null,
+        );
+      },
+    );
+  }
+
   Step _buildStepCarga() {
-    // Leemos el estado aquí localmente
     final state = ref.watch(paqueteFormProvider);
     
     return Step(
@@ -167,7 +285,7 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _pesoUnidad, // <-- Usamos value en lugar de initialValue
+                    value: _pesoUnidad, 
                     decoration: const InputDecoration(labelText: 'Unidad'),
                     items: ['Kg', 'Lb', 'Galón', 'Litro', 'Pieza', 'Caja']
                         .map((u) => DropdownMenuItem(value: u, child: Text(u)))
@@ -270,7 +388,7 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
             _resumenRow('De:', _remitenteController.text),
             _resumenRow('Para:', _destinatarioController.text),
             _resumenRow('Carga:', '${_pesoController.text} $_pesoUnidad'),
-            _resumenRow('Origen:', _origenController.text.isEmpty ? 'N/A' : _origenController.text),
+            _resumenRow('Origen USA:', _origenController.text.isEmpty ? 'N/A' : _origenController.text),
           ],
         ),
       ),
@@ -331,6 +449,12 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
         'remitente_origen': _origenController.text,
         'destinatario_nombre': _destinatarioController.text,
         'destinatario_contacto': _destinatarioTelController.text,
+        
+        // Enviamos los 3 IDs de los catálogos a PHP
+        'id_estado_destino': _idEstadoDestino,
+        'id_municipio_destino': _idMunicipioDestino,
+        'id_localidad_destino': _idLocalidadDestino,
+
         'peso_cantidad': _pesoController.text,
         'peso_unidad': _pesoUnidad,
       };
@@ -340,7 +464,15 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
         datos['estatus_paquete'] = widget.paqueteAEditar!.estatusPaquete; 
       } else {
         datos['id_usuario_registro'] = usuarioId;
-        datos['estatus_paquete'] = 'Recibido';
+        // NUEVA MÁQUINA DE ESTADOS: El paquete nace en USA
+        datos['estatus_paquete'] = 'Recibido USA'; 
+
+        // --- LA MAGIA: Si nos pasaron un viaje, mandamos su ID a PHP ---
+        if (widget.loteAsociado != null) {
+           datos['id_lote'] = widget.loteAsociado!.id;
+        } else {
+           datos['estatus_paquete'] = 'Recibido USA'; 
+        }
       }
 
       final exito = await ref.read(paqueteFormProvider.notifier).enviarFormulario(datos, esEdicion: _esEdicion);

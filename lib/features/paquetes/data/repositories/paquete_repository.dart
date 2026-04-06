@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
@@ -7,24 +8,27 @@ class PaqueteRepository {
 
   Future<List<PaqueteModel>> getPaquetes() async {
     final url = Uri.parse('${ApiConstants.baseUrl}/paquetes');
-
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 15));
-      final decodedData = jsonDecode(response.body);
+      final response = await http.get(url).timeout(const Duration(seconds: 20));
 
-      if (response.statusCode == 200 && decodedData['status'] == 'success') {
-        // La API devuelve un arreglo de JSONs en la llave 'data'
-        final List<dynamic> paquetesJson = decodedData['data'];
-        
-        // Mapeamos cada JSON a un PaqueteModel y retornamos la lista
+      if (response.statusCode == 200) {
+        final decodedData = jsonDecode(response.body);
+
+        if (decodedData['status'] == 'error') {
+          throw Exception(decodedData['message']);
+        }
+
+        // 🔥 EL BLINDAJE CONTRA NULOS (Si no hay 'data', usamos [])
+        final List<dynamic> paquetesJson = decodedData['data'] != null 
+            ? List<dynamic>.from(decodedData['data']) 
+            : [];
+
         return paquetesJson.map((json) => PaqueteModel.fromJson(json)).toList();
       } else {
-        throw Exception(decodedData['message'] ?? 'Error al obtener la lista de paquetes.');
+        throw Exception('Error del servidor: ${response.statusCode}');
       }
-    } on SocketException {
-      throw Exception('No hay conexión a Internet. Verifica tus datos o Wi-Fi.');
     } catch (e) {
-      throw Exception('Error al cargar paquetes: ${e.toString().replaceAll('Exception: ', '')}');
+      throw Exception('Error de conexión: $e');
     }
   }
 
@@ -51,21 +55,35 @@ class PaqueteRepository {
 
   Future<Map<String, dynamic>> crearPaquete(Map<String, dynamic> data) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/paquetes/crear');
+    
     try {
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(data),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 20)); // Aumentado a 20s para darle tiempo al servidor
 
-      final decodedData = jsonDecode(response.body);
-      if (response.statusCode == 201 && decodedData['status'] == 'success') {
-        return decodedData['data'];
-      } else {
-        throw Exception(decodedData['message'] ?? 'Error al crear el paquete');
+      // Blindaje: Verificamos que realmente llegó un JSON válido
+      Map<String, dynamic> decodedData;
+      try {
+        decodedData = jsonDecode(response.body);
+      } catch (_) {
+        throw Exception('Respuesta inválida del servidor (Status: ${response.statusCode})');
       }
+
+      if (response.statusCode == 201 && decodedData['status'] == 'success') {
+        // Blindaje extra: Si 'data' viene nulo, retornamos un mapa vacío en vez de crashear
+        return decodedData['data'] ?? {}; 
+      }
+      
+      throw Exception(decodedData['message'] ?? 'Error al crear el paquete');
+      
+    } on TimeoutException catch (_) {
+      // Manejo específico del límite de tiempo
+      throw Exception('El servidor tardó demasiado en responder. Intenta de nuevo.');
     } catch (e) {
-      throw Exception('Error al conectar: $e');
+      // Limpiamos la excepción para el SnackBar
+      throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
     }
   }
 
@@ -73,21 +91,34 @@ class PaqueteRepository {
   // EDITAR PAQUETE 
   Future<bool> actualizarPaquete(Map<String, dynamic> data) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/paquetes/editar');
+    
     try {
       final response = await http.put(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(data),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 20)); // Aumentado a 20s para el servidor
 
-      final decodedData = jsonDecode(response.body);
+      // Blindaje: Verificamos que llegó un JSON válido y no una pantalla de error del hosting
+      Map<String, dynamic> decodedData;
+      try {
+        decodedData = jsonDecode(response.body);
+      } catch (_) {
+        throw Exception('Respuesta inválida del servidor (Status: ${response.statusCode})');
+      }
+
       if (response.statusCode == 200 && decodedData['status'] == 'success') {
         return true;
-      } else {
-        throw Exception(decodedData['message'] ?? 'Error al actualizar');
       }
+      
+      throw Exception(decodedData['message'] ?? 'Error al actualizar paquete');
+      
+    } on TimeoutException catch (_) {
+      // Manejo específico si Hostinger tarda en despertar
+      throw Exception('El servidor tardó demasiado en responder. Intenta de nuevo.');
     } catch (e) {
-      throw Exception('Error de conexión: $e');
+      // Limpiamos el error para que el SnackBar se vea profesional
+      throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
     }
   }
 

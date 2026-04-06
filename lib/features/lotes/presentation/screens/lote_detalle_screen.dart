@@ -11,6 +11,8 @@ import '../providers/lote_provider.dart';
 import '../../domain/models/lote_model.dart';
 import '../../../paquetes/presentation/providers/paquete_provider.dart'; 
 import '../../../paquetes/presentation/screens/paquetes_screen.dart';
+// Asegúrate de que esta ruta apunte correctamente a tu formulario de paquetes
+import '../../../paquetes/presentation/screens/formulario_paquete_screen.dart';
 import 'formulario_lote_screen.dart';
 
 // =========================================================================
@@ -95,7 +97,7 @@ class SharedModalLayout extends StatelessWidget {
 }
 
 // =========================================================================
-// PANTALLA PRINCIPAL (SIN BUSCADOR)
+// PANTALLA PRINCIPAL
 // =========================================================================
 class LoteDetalleScreen extends ConsumerWidget {
   final int loteId;
@@ -128,7 +130,6 @@ class LoteDetalleScreen extends ConsumerWidget {
         loading: () => const Center(child: CircularProgressIndicator()),
         error: (error, stack) => _buildErrorView(ref, error.toString()),
         data: (lote) {
-          // Ya no filtramos, mostramos todos los del viaje tal cual
           final paquetes = lote.paquetes ?? [];
 
           return CustomScrollView(
@@ -142,12 +143,21 @@ class LoteDetalleScreen extends ConsumerWidget {
                     children: [
                       Text(lote.nombreViaje, style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 24)),
                       const SizedBox(height: 8),
+                      _buildInfoRow(
+                        lote.tipoViaje == 'Principal' ? Icons.public : Icons.local_shipping, 
+                        'Tipo de Ruta:', 
+                        lote.tipoViaje == 'Principal' ? 'Internacional' : 'Reparto Local'
+                      ),
+                      const SizedBox(height: 4),
+                      
+                      // WIDGET DE UBICACIÓN
                       _buildInfoRow(Icons.location_on_outlined, 'Ubicación Actual:', lote.ubicacionActual),
                       
                       _buildTimeline(lote.estatusLote),
                       
                       const Divider(height: 30),
                       
+                      // BOTÓN DE ACTUALIZAR RASTREO
                       if (lote.estatusLote != 'Finalizado')
                         Row(
                           children: [
@@ -307,40 +317,67 @@ class LoteDetalleScreen extends ConsumerWidget {
     );
   }
 
+  // =========================================================================
+  // BOTÓN FLOTANTE INTELIGENTE 
+  // =========================================================================
   Widget? _buildFloatingActionButton(BuildContext context, WidgetRef ref, LoteModel? lote) {
     if (lote == null || lote.estatusLote == 'Finalizado') return null;
 
-    if (lote.estatusLote == 'Preparación') {
+    if (lote.tipoViaje == 'Principal') {
+      // 1. VIAJE INTERNACIONAL: Crear un paquete nuevo Y ASIGNARLO AL LOTE
       return FloatingActionButton.extended(
         backgroundColor: AppColors.primary,
+        foregroundColor: AppColors.surface,
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              // LE PASAMOS EL LOTE ACTUAL AL FORMULARIO
+              builder: (context) => FormularioPaqueteScreen(loteAsociado: lote),
+            ),
+          ).then((_) {
+            // Refrescar al regresar para ver la nueva caja en la lista del viaje
+            ref.invalidate(loteDetalleProvider(lote.id));
+            ref.invalidate(paquetesProvider);
+          });
+        },
+        icon: const Icon(Icons.add_box),
+        label: const Text('NUEVO PAQUETE'),
+      );
+    } else {
+      // 2. VIAJE DE REPARTO LOCAL: Asignar paquetes de bodega o entregarlos
+      if (lote.estatusLote == 'Preparación') {
+        return FloatingActionButton.extended(
+          backgroundColor: AppColors.primary,
+          foregroundColor: AppColors.surface,
+          onPressed: () {
+            showModalBottomSheet(
+              context: context,
+              isScrollControlled: true,
+              backgroundColor: Colors.transparent,
+              builder: (context) => ModalCargaMasiva(lote: lote),
+            );
+          },
+          icon: const Icon(Icons.airport_shuttle),
+          label: const Text('CARGAR CAMIONETA'),
+        );
+      }
+
+      return FloatingActionButton.extended(
+        backgroundColor: AppColors.highlight,
         foregroundColor: AppColors.surface,
         onPressed: () {
           showModalBottomSheet(
             context: context,
             isScrollControlled: true,
             backgroundColor: Colors.transparent,
-            builder: (context) => ModalCargaMasiva(loteId: lote.id),
+            builder: (context) => ModalEntregaPaquetes(lote: lote),
           );
         },
-        icon: const Icon(Icons.add_box),
-        label: const Text('ASIGNAR CARGA'),
+        icon: const Icon(Icons.local_shipping),
+        label: const Text('ENTREGAR PAQUETE'),
       );
     }
-
-    return FloatingActionButton.extended(
-      backgroundColor: AppColors.highlight,
-      foregroundColor: AppColors.surface,
-      onPressed: () {
-        showModalBottomSheet(
-          context: context,
-          isScrollControlled: true,
-          backgroundColor: Colors.transparent,
-          builder: (context) => ModalEntregaPaquetes(lote: lote),
-        );
-      },
-      icon: const Icon(Icons.local_shipping),
-      label: const Text('ENTREGAR PAQUETE'),
-    );
   }
 
   Widget _buildInfoRow(IconData icono, String titulo, String valor) {
@@ -374,7 +411,7 @@ class LoteDetalleScreen extends ConsumerWidget {
 }
 
 // =========================================================================
-// MODAL DE ENTREGAS CON EL COMPONENTE COMPARTIDO
+// MODAL DE ENTREGAS 
 // =========================================================================
 class ModalEntregaPaquetes extends ConsumerStatefulWidget {
   final LoteModel lote;
@@ -475,11 +512,11 @@ class _ModalEntregaPaquetesState extends ConsumerState<ModalEntregaPaquetes> {
 }
 
 // =========================================================================
-// MODAL DE ASIGNACIÓN MASIVA
+// MODAL DE ASIGNACIÓN MASIVA (AHORA EXCLUSIVO PARA REPARTO LOCAL)
 // =========================================================================
 class ModalCargaMasiva extends ConsumerStatefulWidget {
-  final int loteId;
-  const ModalCargaMasiva({super.key, required this.loteId});
+  final LoteModel lote;
+  const ModalCargaMasiva({super.key, required this.lote});
 
   @override
   ConsumerState<ModalCargaMasiva> createState() => _ModalCargaMasivaState();
@@ -495,8 +532,8 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
     if (_selectedIds.isEmpty) return;
     setState(() => _isLoading = true);
     try {
-      await ref.read(loteRepositoryProvider).asignarPaquetesALote(widget.loteId, _selectedIds.toList());
-      ref.invalidate(loteDetalleProvider(widget.loteId));
+      await ref.read(loteRepositoryProvider).asignarPaquetesALote(widget.lote.id, _selectedIds.toList());
+      ref.invalidate(loteDetalleProvider(widget.lote.id));
       ref.invalidate(paquetesProvider);
 
       if (mounted) {
@@ -517,14 +554,18 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
   @override
   Widget build(BuildContext context) {
     final todosLosPaquetes = ref.watch(paquetesProvider).value ?? [];
-    final paquetesDisponibles = todosLosPaquetes.where((p) => p.estatusPaquete == 'Recibido').toList();
+    
+    // Aquí filtramos rigurosamente para que solo se carguen paquetes que estén en bodega
+    final estatusPermitido = 'En Bodega México';
+    
+    final paquetesDisponibles = todosLosPaquetes.where((p) => p.estatusPaquete == estatusPermitido).toList();
     final paquetesFiltrados = PaqueteUtils.filtrar(paquetesDisponibles, _searchQuery, _filterType);
 
     bool todosSeleccionados = paquetesFiltrados.isNotEmpty && 
                               paquetesFiltrados.every((p) => _selectedIds.contains(p.id));
 
     return SharedModalLayout(
-      titulo: 'Asignar Paquetes',
+      titulo: 'Cargar Camioneta',
       buscador: BuscadorFiltroWidget(
         filterType: _filterType,
         filterOptions: const ['Destino', 'Origen', 'Guía'],
@@ -539,7 +580,10 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
               setState(() => _selectedIds.add(p.id));
               if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paquete agregado a la selección')));
             } else {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Código no encontrado o ya asignado'), backgroundColor: AppColors.error));
+              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('Código no encontrado o el paquete no está "$estatusPermitido"'), 
+                backgroundColor: AppColors.error)
+              );
             }
           }
         },
@@ -552,7 +596,7 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${paquetesFiltrados.length} resultados', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                Text('${paquetesFiltrados.length} listos ($estatusPermitido)', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
                 if (paquetesFiltrados.isNotEmpty)
                   Row(
                     children: [
@@ -578,7 +622,7 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
         ],
       ),
       listado: paquetesFiltrados.isEmpty
-        ? const Center(child: Text('No hay paquetes libres con ese filtro.', style: TextStyle(color: Colors.grey)))
+        ? Center(child: Text('No hay paquetes en "$estatusPermitido" que coincidan.', style: const TextStyle(color: Colors.grey)))
         : ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: paquetesFiltrados.length,

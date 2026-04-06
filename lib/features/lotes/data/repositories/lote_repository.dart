@@ -1,5 +1,5 @@
+import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:http/http.dart' as http;
 import '../../../../core/constants/api_constants.dart';
 import '../../domain/models/lote_model.dart';
@@ -9,19 +9,27 @@ class LoteRepository {
   Future<List<LoteModel>> getLotes() async {
     final url = Uri.parse('${ApiConstants.baseUrl}/lotes');
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 15));
-      final decodedData = jsonDecode(response.body);
+      final response = await http.get(url).timeout(const Duration(seconds: 20));
+      
 
-      if (response.statusCode == 200 && decodedData['status'] == 'success') {
-        final List<dynamic> lotesJson = decodedData['data'];
+      if (response.statusCode == 200) {
+        final decodedData = jsonDecode(response.body);
+
+        if (decodedData['status'] == 'error') {
+          throw Exception(decodedData['message']);
+        }
+
+        // 🔥 EL BLINDAJE CONTRA NULOS
+        final List<dynamic> lotesJson = decodedData['data'] != null 
+            ? List<dynamic>.from(decodedData['data']) 
+            : [];
+
         return lotesJson.map((json) => LoteModel.fromJson(json)).toList();
       } else {
-        throw Exception(decodedData['message'] ?? 'Error al obtener lotes');
+        throw Exception('Error del servidor: ${response.statusCode}');
       }
-    } on SocketException {
-      throw Exception('Sin conexión a internet');
     } catch (e) {
-      throw Exception('Error: $e');
+      throw Exception('Error de conexión: $e');
     }
   }
 
@@ -43,24 +51,40 @@ class LoteRepository {
   }
 
 
-  // CREAR LOTE
-  Future<bool> crearLote(Map<String, dynamic> data) async {
+ Future<bool> crearLote(Map<String, dynamic> data) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/lotes/crear');
+    
     try {
       final response = await http.post(
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(data),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 20)); // Aumentado a 20s para darle respiro al servidor
 
-      final decodedData = jsonDecode(response.body);
-      if (response.statusCode == 201 && decodedData['status'] == 'success') return true;
+      // Blindaje: Verificamos que realmente llegó un JSON y no una página de error HTML
+      Map<String, dynamic> decodedData;
+      try {
+        decodedData = jsonDecode(response.body);
+      } catch (_) {
+        throw Exception('Respuesta inválida del servidor (Status: ${response.statusCode})');
+      }
+
+      if (response.statusCode == 201 && decodedData['status'] == 'success') {
+        return true;
+      }
+      
       throw Exception(decodedData['message'] ?? 'Error al crear lote');
+      
+    } on TimeoutException catch (_) {
+      // Si Hostinger se durmió y pasaron los 20 segundos, avisamos amablemente
+      throw Exception('El servidor tardó demasiado en responder. Intenta de nuevo.');
     } catch (e) {
-      throw Exception('Error de conexión: $e');
+      // Limpiamos el texto 'Exception:' para que no se vea feo en el SnackBar
+      throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
     }
   }
 
+  // EDITAR LOTE
   // EDITAR LOTE
   Future<bool> actualizarLote(Map<String, dynamic> data) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/lotes/editar');
@@ -69,13 +93,26 @@ class LoteRepository {
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(data),
-      ).timeout(const Duration(seconds: 15));
+      ).timeout(const Duration(seconds: 20)); // Aumentado a 20s
 
-      final decodedData = jsonDecode(response.body);
-      if (response.statusCode == 200 && decodedData['status'] == 'success') return true;
+      // Blindaje contra errores de servidor que devuelven HTML
+      Map<String, dynamic> decodedData;
+      try {
+        decodedData = jsonDecode(response.body);
+      } catch (_) {
+        throw Exception('Respuesta inválida del servidor (Status: ${response.statusCode})');
+      }
+
+      if (response.statusCode == 200 && decodedData['status'] == 'success') {
+        return true;
+      }
+      
       throw Exception(decodedData['message'] ?? 'Error al actualizar lote');
+      
+    } on TimeoutException catch (_) {
+      throw Exception('El servidor tardó demasiado en responder. Intenta de nuevo.');
     } catch (e) {
-      throw Exception('Error de conexión: $e');
+      throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
     }
   }
 
