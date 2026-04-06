@@ -5,6 +5,33 @@ import '../../../../core/constants/api_constants.dart';
 
 class EvidenciaRepository {
 
+  Future<List<dynamic>> getEvidencias(int idPaquete) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/evidencias?id_paquete=$idPaquete');
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 15));
+      final decodedData = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && decodedData['status'] == 'success') {
+        
+        // --- SOLUCIÓN: BLINDAJE CONTRA NULL ---
+        final data = decodedData['data'];
+        
+        if (data == null) {
+          return []; // Si viene nulo, devolvemos una lista vacía
+        } else if (data is List) {
+          return data; // Si sí es una lista, la devolvemos tal cual
+        } else {
+          return []; // Si por error PHP mandó un texto o un objeto, evitamos el crasheo
+        }
+        
+      } else {
+        throw Exception(decodedData['message'] ?? 'Error al obtener evidencias');
+      }
+    } catch (e) {
+      throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
+
   Future<bool> subirEvidencia({
     required int idPaquete,
     required String tipoEvidencia,

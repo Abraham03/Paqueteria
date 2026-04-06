@@ -15,7 +15,7 @@ class MainScreen extends ConsumerStatefulWidget {
 }
 
 class _MainScreenState extends ConsumerState<MainScreen> {
-  int _currentIndex = 0;
+  int _currentIndex = 1;
 
   // Creamos una función que devuelve las pantallas permitidas según el rol
   List<Widget> _getScreensForRole(String rol) {
