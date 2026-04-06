@@ -11,16 +11,16 @@ import 'formulario_paquete_screen.dart';
 import '../../../../core/presentation/screens/escaner_screen.dart';
 import '../../../../core/presentation/widgets/paquete_card_widget.dart';
 import '../../../../core/presentation/widgets/buscador_filtro_widget.dart';
+import '../../../../core/utils/paquete_utils.dart'; // <-- IMPORTAMOS EL UTILITARIO DRY
 
-// IMPORTAMOS EL MODAL QUE ACABAMOS DE EXTRAER
+// IMPORTAMOS EL MODAL
 import '../../../../core/presentation/widgets/paquete_detalle_modal.dart';
 
-// --- FUNCIONES GLOBALES DE APOYO ---
 Color obtenerColorEstatusGlobal(String estatus) {
   if (estatus == 'Recibido USA') return AppColors.accent;
   if (estatus == 'En Bodega México') return AppColors.primary;
   if (estatus == 'Entregado') return AppColors.success;
-  return AppColors.highlight; // Para En Tránsito y otros
+  return AppColors.highlight; 
 }
 
 class PaquetesScreen extends ConsumerStatefulWidget {
@@ -33,6 +33,7 @@ class PaquetesScreen extends ConsumerStatefulWidget {
 class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
   String _searchQuery = '';
   String _filterType = 'Destino';
+  String _statusFilter = 'Todos'; // <-- NUEVA VARIABLE PARA LOS CHIPS
 
   @override
   Widget build(BuildContext context) {
@@ -43,6 +44,21 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
       appBar: AppBar(
         title: const Text('Paquetes Activos'),
         actions: [
+          // 1. MOVIMOS EL ESCÁNER AQUÍ ARRIBA (Así no lo perdemos)
+          IconButton(
+            icon: const Icon(Icons.qr_code_scanner),
+            onPressed: () async {
+              FocusScope.of(context).unfocus();
+              final barcodeScanRes = await Navigator.push<String>(
+                context,
+                MaterialPageRoute(builder: (context) => const EscanerScreen()),
+              );
+              if (barcodeScanRes != null && barcodeScanRes.isNotEmpty) {
+                final listaPaquetes = paquetesState.value ?? [];
+                if (mounted) _procesarCodigo(context, ref, barcodeScanRes, listaPaquetes);
+              }
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.read(paquetesProvider.notifier).refrescarPaquetes(),
@@ -51,7 +67,7 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
       ),
       body: Column(
         children: [
-          // --- BARRA DE BÚSQUEDA ---
+          // --- BARRA DE BÚSQUEDA Y CHIPS ---
           Container(
             color: AppColors.surface,
             padding: const EdgeInsets.all(16.0),
@@ -60,17 +76,17 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
               filterOptions: const ['Destino', 'Origen', 'Guía'],
               onFilterChanged: (val) => setState(() => _filterType = val),
               onSearchChanged: (val) => setState(() => _searchQuery = val),
-              onScanPressed: () async {
-                FocusScope.of(context).unfocus();
-                final barcodeScanRes = await Navigator.push<String>(
-                  context,
-                  MaterialPageRoute(builder: (context) => const EscanerScreen()),
-                );
-                if (barcodeScanRes != null && barcodeScanRes.isNotEmpty) {
-                  final listaPaquetes = paquetesState.value ?? [];
-                  if (mounted) _procesarCodigo(context, ref, barcodeScanRes, listaPaquetes);
-                }
-              },
+              // PASAMOS LOS NUEVOS PARÁMETROS DEL WIDGET (Sin el escáner)
+              statusFilter: _statusFilter,
+              statusOptions: const [
+                'Todos', 
+                'Recibido USA', 
+                'En Viaje Principal', 
+                'En Bodega México', 
+                'En Viaje Reparto', 
+                'Entregado'
+              ],
+              onStatusChanged: (val) => setState(() => _statusFilter = val),
             ),
           ),
 
@@ -104,25 +120,13 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
                   );
                 }
 
-                final paquetesFiltrados = paquetes.where((p) {
-                  if (_searchQuery.isEmpty) return true;
-                  final q = _searchQuery.toLowerCase();
-                  
-                  switch (_filterType) {
-                    case 'Guía':
-                      return p.guiaRastreo.toLowerCase().contains(q);
-                    case 'Origen':
-                      final origen = p.remitenteOrigen?.toLowerCase() ?? '';
-                      final remitente = p.remitenteNombre.toLowerCase();
-                      return origen.contains(q) || remitente.contains(q);
-                    case 'Destino':
-                      final destino = p.destinatarioOrigen?.toLowerCase() ?? '';
-                      final destinatario = p.destinatarioNombre.toLowerCase();
-                      return destino.contains(q) || destinatario.contains(q);
-                    default:
-                      return true;
-                  }
-                }).toList();
+                // 2. USAMOS NUESTRA FUNCIÓN DRY (Ya no hay código espagueti aquí)
+                final paquetesFiltrados = PaqueteUtils.filtrar(
+                  paquetes: paquetes,
+                  query: _searchQuery,
+                  tipoFiltro: _filterType,
+                  estatusFiltro: _statusFilter,
+                );
 
                 if (paquetesFiltrados.isEmpty) {
                   return const Center(child: Text('Ningún paquete coincide con la búsqueda.', style: TextStyle(color: Colors.grey)));
@@ -158,7 +162,6 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
         ],
       ),
       
-      // BOTÓN FLOTANTE (Solo Administradores/Dueños)
       floatingActionButton: (user?.rol == 'Dueño' || user?.rol == 'Administrador')
         ? FloatingActionButton.extended(
             heroTag: 'btn_new', 
@@ -177,7 +180,6 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
     );
   }
 
-  // --- LÓGICA DE ESCÁNER ---
   void _procesarCodigo(BuildContext context, WidgetRef ref, String codigo, List<PaqueteModel> paquetesActivos) {
     if (codigo.isEmpty) {
        ScaffoldMessenger.of(context).showSnackBar(

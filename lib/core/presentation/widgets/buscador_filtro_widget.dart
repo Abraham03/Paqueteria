@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
-import '../../theme/app_colors.dart'; // Ajusta la ruta a tus colores
+import '../../theme/app_colors.dart'; 
 
 class BuscadorFiltroWidget extends StatelessWidget {
   final String filterType;
   final List<String> filterOptions;
   final ValueChanged<String> onFilterChanged;
   final ValueChanged<String> onSearchChanged;
-  final VoidCallback onScanPressed;
+  
+  // --- NUEVOS PARÁMETROS PARA EL ESTATUS ---
+  final String statusFilter;
+  final List<String> statusOptions;
+  final ValueChanged<String> onStatusChanged;
 
   const BuscadorFiltroWidget({
     super.key,
@@ -14,56 +18,105 @@ class BuscadorFiltroWidget extends StatelessWidget {
     required this.filterOptions,
     required this.onFilterChanged,
     required this.onSearchChanged,
-    required this.onScanPressed,
+    required this.statusFilter,
+    required this.statusOptions,
+    required this.onStatusChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // 1. Selector de Filtro (Dropdown)
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          decoration: BoxDecoration(
-            color: Colors.grey.shade100, 
-            borderRadius: BorderRadius.circular(12)
-          ),
-          child: DropdownButtonHideUnderline(
-            child: DropdownButton<String>(
-              value: filterType,
-              items: filterOptions.map((e) => DropdownMenuItem(value: e, child: Text(e))).toList(),
-              onChanged: (val) {
-                if (val != null) onFilterChanged(val);
-              },
+        // --- FILA 1: TIPO DE BÚSQUEDA Y CAJA DE TEXTO ---
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: Colors.grey.shade100, 
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: Colors.grey.shade300), // Borde elegante
+              ),
+              child: DropdownButtonHideUnderline(
+                child: DropdownButton<String>(
+                  value: filterType,
+                  icon: const Icon(Icons.keyboard_arrow_down, size: 20),
+                  items: filterOptions.map((e) => DropdownMenuItem(
+                    value: e, 
+                    child: Text(e, style: const TextStyle(fontWeight: FontWeight.w600))
+                  )).toList(),
+                  onChanged: (val) {
+                    if (val != null) onFilterChanged(val);
+                  },
+                ),
+              ),
             ),
+            const SizedBox(width: 10),
+            
+            Expanded(
+              child: TextField(
+                decoration: InputDecoration(
+                  hintText: 'Buscar por $filterType...',
+                  prefixIcon: const Icon(Icons.search, color: AppColors.primary),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 0),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: Colors.grey.shade300),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: const BorderSide(color: AppColors.primary, width: 1.5),
+                  ),
+                ),
+                onChanged: onSearchChanged,
+              ),
+            ),
+          ],
+        ),
+        
+        const SizedBox(height: 12),
+
+        // --- FILA 2: CHIPS DE ESTATUS (Deslizables horizontalmente) ---
+        SizedBox(
+          height: 36, // Altura fija para que el scroll horizontal funcione
+          child: ListView.builder(
+            scrollDirection: Axis.horizontal,
+            itemCount: statusOptions.length,
+            itemBuilder: (context, index) {
+              final status = statusOptions[index];
+              final isSelected = statusFilter == status;
+              
+              return Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: ChoiceChip(
+                  label: Text(status),
+                  selected: isSelected,
+                  onSelected: (selected) {
+                    if (selected) onStatusChanged(status);
+                  },
+                  selectedColor: AppColors.primary.withValues(alpha: 0.15),
+                  backgroundColor: Colors.grey.shade100,
+                  labelStyle: TextStyle(
+                    color: isSelected ? AppColors.primary : Colors.grey.shade700,
+                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                    fontSize: 13,
+                  ),
+                  side: BorderSide(
+                    color: isSelected ? AppColors.primary : Colors.grey.shade300,
+                  ),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                ),
+              );
+            },
           ),
         ),
-        const SizedBox(width: 12),
-        
-        // 2. Campo de Texto (Buscador)
-        Expanded(
-          child: TextField(
-            decoration: const InputDecoration(
-              hintText: 'Buscar...',
-              prefixIcon: Icon(Icons.search),
-              contentPadding: EdgeInsets.symmetric(vertical: 0),
-            ),
-            onChanged: onSearchChanged,
-          ),
-        ),
-        const SizedBox(width: 8),
-        
-        // 3. Botón de Escáner
-        Container(
-          decoration: BoxDecoration(
-            color: AppColors.primary, 
-            borderRadius: BorderRadius.circular(12)
-          ),
-          child: IconButton(
-            icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
-            onPressed: onScanPressed,
-          ),
-        )
       ],
     );
   }

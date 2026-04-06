@@ -24,6 +24,7 @@ class ModalEntregaPaquetes extends ConsumerStatefulWidget {
 class _ModalEntregaPaquetesState extends ConsumerState<ModalEntregaPaquetes> {
   String _searchQuery = '';
   String _filterType = 'Guía'; 
+  String _statusFilter = 'Todos'; // <-- NUEVA VARIABLE
   bool _isLoading = false;
 
   Future<void> _procesarEntrega(PaqueteModel paquete) async {
@@ -45,16 +46,15 @@ class _ModalEntregaPaquetesState extends ConsumerState<ModalEntregaPaquetes> {
       ref.invalidate(loteDetalleProvider(widget.lote.id));
       ref.invalidate(paquetesProvider); 
 
-      if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('¡Paquete Entregado!'), backgroundColor: AppColors.success)
-        );
-      }
+      if (!mounted) return; // <-- LINTER
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('¡Paquete Entregado!'), backgroundColor: AppColors.success)
+      );
+      
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: AppColors.error));
-      }
+      if (!mounted) return; // <-- LINTER
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceAll('Exception: ', '')), backgroundColor: AppColors.error));
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }
@@ -66,27 +66,55 @@ class _ModalEntregaPaquetesState extends ConsumerState<ModalEntregaPaquetes> {
     final paquetesEnCamioneta = loteState.paquetes ?? [];
     
     final paquetesPendientes = paquetesEnCamioneta.where((p) => p.estatusPaquete != 'Entregado').toList();
-    final paquetesFiltrados = PaqueteUtils.filtrar(paquetesPendientes, _searchQuery, _filterType);
+    
+    // <-- CORRECCIÓN: PARÁMETROS NOMBRADOS (SOLID/DRY) -->
+    final paquetesFiltrados = PaqueteUtils.filtrar(
+      paquetes: paquetesPendientes, 
+      query: _searchQuery, 
+      tipoFiltro: _filterType,
+      estatusFiltro: _statusFilter
+    );
 
     return SharedModalLayout(
       titulo: 'Entregar Paquete',
-      buscador: BuscadorFiltroWidget(
-        filterType: _filterType,
-        filterOptions: const ['Guía', 'Destino', 'Origen'],
-        onFilterChanged: (val) => setState(() => _filterType = val),
-        onSearchChanged: (val) => setState(() => _searchQuery = val),
-        onScanPressed: () async {
-          FocusScope.of(context).unfocus();
-          final barcode = await Navigator.push<String>(context, MaterialPageRoute(builder: (context) => const EscanerScreen()));
-          if (barcode != null && barcode.isNotEmpty) {
-            final p = paquetesEnCamioneta.where((p) => p.guiaRastreo == barcode).firstOrNull;
-            if (p != null) {
-              _procesarEntrega(p); 
-            } else {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Esa caja no viene en este viaje.'), backgroundColor: AppColors.error));
-            }
-          }
-        },
+      buscador: Row(
+        children: [
+          Expanded(
+            child: BuscadorFiltroWidget(
+              filterType: _filterType,
+              filterOptions: const ['Guía', 'Destino', 'Origen'],
+              onFilterChanged: (val) => setState(() => _filterType = val),
+              onSearchChanged: (val) => setState(() => _searchQuery = val),
+              statusFilter: _statusFilter,
+              statusOptions: const ['Todos'], 
+              onStatusChanged: (val) => setState(() => _statusFilter = val),
+            ),
+          ),
+          const SizedBox(width: 8),
+          
+          // <-- BOTÓN ESCÁNER RESCATADO -->
+          Container(
+            decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(12)),
+            child: IconButton(
+              icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
+              onPressed: () async {
+                FocusScope.of(context).unfocus();
+                final barcode = await Navigator.push<String>(context, MaterialPageRoute(builder: (context) => const EscanerScreen()));
+                
+                if (!mounted) return; // <-- LINTER
+
+                if (barcode != null && barcode.isNotEmpty) {
+                  final p = paquetesEnCamioneta.where((p) => p.guiaRastreo == barcode).firstOrNull;
+                  if (p != null) {
+                    _procesarEntrega(p); 
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Esa caja no viene en este viaje.'), backgroundColor: AppColors.error));
+                  }
+                }
+              },
+            ),
+          )
+        ],
       ),
       listado: _isLoading 
         ? const Center(child: CircularProgressIndicator())
@@ -98,7 +126,6 @@ class _ModalEntregaPaquetesState extends ConsumerState<ModalEntregaPaquetes> {
               itemBuilder: (context, index) {
                 final paquete = paquetesFiltrados[index];
                 
-                // 2. REEMPLAZO POR TU PAQUETE CARD WIDGET EN MODAL DE ENTREGAS
                 return PaqueteCardWidget(
                   paquete: paquete,
                   trailing: ElevatedButton(
