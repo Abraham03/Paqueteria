@@ -246,7 +246,7 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
             filled: true,
             fillColor: enabled ? Colors.white : Colors.grey.shade100,
           ),
-          value: safeValue,
+          initialValue: safeValue,
           isExpanded: true,
           hint: Text(enabled ? 'Seleccionar $label' : 'Primero selecciona la opción anterior'),
           items: enabled 
@@ -285,7 +285,7 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
                 const SizedBox(width: 12),
                 Expanded(
                   child: DropdownButtonFormField<String>(
-                    value: _pesoUnidad, 
+                    initialValue: _pesoUnidad, 
                     decoration: const InputDecoration(labelText: 'Unidad'),
                     items: ['Kg', 'Lb', 'Galón', 'Litro', 'Pieza', 'Caja']
                         .map((u) => DropdownMenuItem(value: u, child: Text(u)))
@@ -366,7 +366,7 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
         : ListView.separated(
             shrinkWrap: true,
             itemCount: state.items.length,
-            separatorBuilder: (_, __) => const Divider(height: 1),
+            separatorBuilder: (_, _) => const Divider(height: 1),
             itemBuilder: (context, i) => ListTile(
               title: Text(state.items[i]['descripcion']),
               trailing: Text('x${state.items[i]['cantidad']}', style: const TextStyle(fontWeight: FontWeight.bold)),

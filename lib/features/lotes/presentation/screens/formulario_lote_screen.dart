@@ -131,7 +131,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
 
               // --- NUEVO: DROPDOWN PARA TIPO DE VIAJE ---
               DropdownButtonFormField<String>(
-                value: _tipoViajeSeleccionado,
+                initialValue: _tipoViajeSeleccionado,
                 decoration: InputDecoration(
                   labelText: 'Tipo de Viaje',
                   prefixIcon: const Icon(Icons.route),
@@ -165,7 +165,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               const SizedBox(height: 16),
 
               DropdownButtonFormField<String>(
-                value: _estatusSeleccionado,
+                initialValue: _estatusSeleccionado,
                 decoration: InputDecoration(
                   labelText: 'Estatus del Viaje',
                   prefixIcon: const Icon(Icons.timeline),

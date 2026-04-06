@@ -118,6 +118,7 @@ class LotesScreen extends ConsumerWidget {
             child: ListTile(
               contentPadding: const EdgeInsets.all(16),
               leading: CircleAvatar(
+                // ignore: deprecated_member_use
                 backgroundColor: AppColors.primary.withOpacity(0.1),
                 child: const Icon(Icons.local_shipping, color: AppColors.primary),
               ),

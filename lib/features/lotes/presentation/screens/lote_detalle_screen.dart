@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -86,10 +88,10 @@ class SharedModalLayout extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 20.0),
             child: buscador,
           ),
-          if (cabeceraExtra != null) cabeceraExtra!,
+          ?cabeceraExtra,
           if (cabeceraExtra == null) const Divider(height: 30),
           Expanded(child: listado),
-          if (piePagina != null) piePagina!,
+          ?piePagina,
         ],
       ),
     );
@@ -483,6 +485,8 @@ class _ModalEntregaPaquetesState extends ConsumerState<ModalEntregaPaquetes> {
             if (p != null) {
               _procesarEntrega(p); 
             } else {
+              // ignore: duplicate_ignore
+              // ignore: use_build_context_synchronously
               if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Esa caja no viene en este viaje.'), backgroundColor: AppColors.error));
             }
           }
@@ -580,10 +584,12 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
               setState(() => _selectedIds.add(p.id));
               if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paquete agregado a la selección')));
             } else {
-              if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                 content: Text('Código no encontrado o el paquete no está "$estatusPermitido"'), 
                 backgroundColor: AppColors.error)
               );
+              }
             }
           }
         },
