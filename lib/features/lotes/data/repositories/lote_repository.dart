@@ -51,7 +51,8 @@ class LoteRepository {
   }
 
 
- Future<bool> crearLote(Map<String, dynamic> data) async {
+ // CAmbiamos Future<bool> por Future<int>
+  Future<int> crearLote(Map<String, dynamic> data) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/lotes/crear');
     
     try {
@@ -59,9 +60,8 @@ class LoteRepository {
         url,
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(data),
-      ).timeout(const Duration(seconds: 20)); // Aumentado a 20s para darle respiro al servidor
+      ).timeout(const Duration(seconds: 20));
 
-      // Blindaje: Verificamos que realmente llegó un JSON y no una página de error HTML
       Map<String, dynamic> decodedData;
       try {
         decodedData = jsonDecode(response.body);
@@ -70,16 +70,16 @@ class LoteRepository {
       }
 
       if (response.statusCode == 201 && decodedData['status'] == 'success') {
-        return true;
+        // --- LA MAGIA ESTÁ AQUÍ ---
+        // En lugar de retornar 'true', extraemos y retornamos el ID
+        return decodedData['data']['id'] as int;
       }
       
       throw Exception(decodedData['message'] ?? 'Error al crear lote');
       
     } on TimeoutException catch (_) {
-      // Si Hostinger se durmió y pasaron los 20 segundos, avisamos amablemente
       throw Exception('El servidor tardó demasiado en responder. Intenta de nuevo.');
     } catch (e) {
-      // Limpiamos el texto 'Exception:' para que no se vea feo en el SnackBar
       throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
     }
   }

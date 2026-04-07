@@ -2,11 +2,17 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../../features/paquetes/presentation/screens/paquetes_screen.dart';
 import '../../../features/auth/presentation/providers/auth_provider.dart';
 import '../../../features/auth/presentation/screens/login_screen.dart';
 import '../../../features/lotes/presentation/screens/lotes_screen.dart';
 import '../../theme/app_colors.dart';
+
+// --- IMPORTAMOS LAS PANTALLAS ADMINISTRATIVAS ---
+import '../../../features/catalogos/presentation/screens/catalogo_screen.dart';
+import '../../../features/recolector/presentation/screens/modal_nueva_recoleccion.dart'; // Ajusta la ruta a donde guardaste el modal de WhatsApp
+
 class MainScreen extends ConsumerStatefulWidget {
   const MainScreen({super.key});
 
@@ -17,24 +23,21 @@ class MainScreen extends ConsumerStatefulWidget {
 class _MainScreenState extends ConsumerState<MainScreen> {
   int _currentIndex = 1;
 
-  // Creamos una función que devuelve las pantallas permitidas según el rol
   List<Widget> _getScreensForRole(String rol) {
     if (rol == 'Dueño' || rol == 'Administrador') {
       return const [
-        PaquetesScreen(), // Puede ver y crear paquetes
-        LotesScreen(),    // Puede ver y gestionar viajes
+        PaquetesScreen(), 
+        LotesScreen(),    
         PerfilScreen(),
       ];
     } else {
-      // Si es un Chofer o Empleado regular
       return const [
-        LotesScreen(),    // Solo ve sus viajes asignados
+        LotesScreen(),    
         PerfilScreen(),
       ];
     }
   }
 
-  // Creamos una función que devuelve los botones (ítems) correspondientes
   List<NavigationDestination> _getNavItemsForRole(String rol) {
     if (rol == 'Dueño' || rol == 'Administrador') {
       return const [
@@ -55,7 +58,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         ),
       ];
     } else {
-      // Menú simplificado para Choferes
       return const [
         NavigationDestination(
           icon: Icon(Icons.local_shipping_outlined),
@@ -73,14 +75,12 @@ class _MainScreenState extends ConsumerState<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Escuchamos al usuario para saber su rol
     final user = ref.watch(authProvider).user;
     final rol = user?.rol ?? 'Empleado';
 
     final screens = _getScreensForRole(rol);
     final navItems = _getNavItemsForRole(rol);
 
-    // Seguridad: Si por alguna razón el índice es mayor a las pantallas permitidas, lo reiniciamos
     if (_currentIndex >= screens.length) {
       _currentIndex = 0;
     }
@@ -90,7 +90,6 @@ class _MainScreenState extends ConsumerState<MainScreen> {
         index: _currentIndex,
         children: screens,
       ),
-      // NavigationBar es el widget moderno de Material 3
       bottomNavigationBar: NavigationBar(
         selectedIndex: _currentIndex,
         onDestinationSelected: (index) {
@@ -99,14 +98,14 @@ class _MainScreenState extends ConsumerState<MainScreen> {
           });
         },
         backgroundColor: AppColors.surface,
-        indicatorColor: AppColors.accent, // El color de la "píldora" seleccionada
+        indicatorColor: AppColors.accent, 
         destinations: navItems,
       ),
     );
   }
 }
 
-// --- PANTALLA DE PERFIL REFACTORIZADA ---
+// --- PANTALLA DE PERFIL REFACTORIZADA (CON SECCIÓN ADMINISTRATIVA) ---
 class PerfilScreen extends ConsumerWidget {
   const PerfilScreen({super.key});
 
@@ -114,15 +113,18 @@ class PerfilScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authProvider);
     final user = authState.user;
+    final esAdministrador = user?.rol == 'Dueño' || user?.rol == 'Administrador';
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mi Perfil'),
       ),
-      body: Center(
+      // Usamos SingleChildScrollView por si la pantalla es pequeña y los botones no caben
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 24),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            // --- HEADER DEL USUARIO ---
             CircleAvatar(
               radius: 50,
               backgroundColor: AppColors.primary.withOpacity(0.1),
@@ -146,12 +148,57 @@ class PerfilScreen extends ConsumerWidget {
                 style: const TextStyle(color: AppColors.accent, fontWeight: FontWeight.bold),
               ),
             ),
-            const SizedBox(height: 48),
             
-            // Botón de Cerrar Sesión Estilizado
+            const SizedBox(height: 48),
+
+            // --- SECCIÓN DE ADMINISTRACIÓN (Solo visible para jefes) ---
+            if (esAdministrador) ...[
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text('Panel Administrativo', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16, color: Colors.grey)),
+              ),
+              const SizedBox(height: 16),
+              
+              // Botón 1: Recolecciones WhatsApp
+              _buildMenuBoton(
+                context, 
+                titulo: 'Recolección (WhatsApp)', 
+                subtitulo: 'Ingresar coordenadas manuales', 
+                icono: Icons.location_on_outlined, 
+                color: AppColors.primary,
+                onTap: () {
+                  showModalBottomSheet(
+                    context: context,
+                    isScrollControlled: true,
+                    backgroundColor: Colors.transparent,
+                    builder: (context) => const ModalNuevaRecoleccion(),
+                  );
+                }
+              ),
+              const SizedBox(height: 12),
+
+              // Botón 2: Catálogo de Zonas
+              _buildMenuBoton(
+                context, 
+                titulo: 'Zonas y Catálogos', 
+                subtitulo: 'Administrar Estados y Colonias', 
+                icono: Icons.map_outlined, 
+                color: AppColors.primary,
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const CatalogoCrudScreen()),
+                  );
+                }
+              ),
+              
+              const SizedBox(height: 48),
+            ],
+
+            // --- BOTÓN DE CERRAR SESIÓN ---
             SizedBox(
-              width: 220,
-              height: 56, // Altura estándar del AppTheme
+              width: double.infinity, // Ocupa todo el ancho disponible
+              height: 56, 
               child: ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
                   backgroundColor: AppColors.error.withOpacity(0.1),
@@ -173,6 +220,48 @@ class PerfilScreen extends ConsumerWidget {
                 label: const Text('Cerrar Sesión'),
               ),
             )
+          ],
+        ),
+      ),
+    );
+  }
+
+  // --- WIDGET REUTILIZABLE PARA LOS BOTONES DEL MENÚ ---
+  Widget _buildMenuBoton(BuildContext context, {
+    required String titulo, 
+    required String subtitulo, 
+    required IconData icono, 
+    required Color color,
+    required VoidCallback onTap
+  }) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: Colors.grey.shade200),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(color: color.withOpacity(0.1), shape: BoxShape.circle),
+              child: Icon(icono, color: color),
+            ),
+            const SizedBox(width: 16),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(titulo, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                  Text(subtitulo, style: const TextStyle(color: Colors.grey, fontSize: 13)),
+                ],
+              ),
+            ),
+            const Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey),
           ],
         ),
       ),

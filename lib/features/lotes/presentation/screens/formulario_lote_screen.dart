@@ -6,6 +6,10 @@ import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/lote_model.dart';
 import '../providers/lote_provider.dart';
 
+// --- IMPORTA TU PROVIDER DE RECOLECCIONES ---
+// Ajusta esta ruta de acuerdo a donde guardaste recoleccion_provider.dart
+import '../../../recolector/presentation/providers/recoleccion_provider.dart';
+
 class FormularioLoteScreen extends ConsumerStatefulWidget {
   final LoteModel? loteAEditar;
 
@@ -28,24 +32,17 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     'Reparto'
   ];
 
-  // --- NUEVO: LÓGICA DINÁMICA (GETTER) ---
-  // Retorna la lista correcta dependiendo del tipo de viaje seleccionado
+  // --- VARIABLES PARA MAPBOX / PARADAS ---
+  List<dynamic> _paradasDisponibles = [];
+  final Set<int> _paradasSeleccionadas = {};
+  bool _cargandoParadas = false;
+  bool _isSaving = false; // Para mostrar loader en el botón guardar
+
   List<String> get _opcionesEstatusActivas {
     if (_tipoViajeSeleccionado == 'Reparto') {
-      return [
-        'Preparación',
-        'En Tránsito',
-        'Finalizado'
-      ];
+      return ['Preparación', 'En Tránsito', 'Finalizado'];
     }
-    // Si es Principal, retorna todas
-    return [
-      'Preparación',
-      'En Tránsito',
-      'En Aduana',
-      'En Bodega México',
-      'Finalizado'
-    ];
+    return ['Preparación', 'En Tránsito', 'En Aduana', 'En Bodega México', 'Finalizado'];
   }
 
   bool get _esEdicion => widget.loteAEditar != null;
@@ -58,12 +55,15 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       _ubicacionController.text = widget.loteAEditar!.ubicacionActual;
       _tipoViajeSeleccionado = widget.loteAEditar!.tipoViaje; 
       
-      // Validamos que el estatus guardado sea compatible con las opciones actuales, 
-      // de lo contrario, ponemos 'Preparación' por defecto
       if (_opcionesEstatusActivas.contains(widget.loteAEditar!.estatusLote)) {
         _estatusSeleccionado = widget.loteAEditar!.estatusLote;
       } else {
         _estatusSeleccionado = 'Preparación';
+      }
+    } else {
+      // Si es un viaje nuevo y está en "Principal", cargamos las paradas de inmediato
+      if (_tipoViajeSeleccionado == 'Principal') {
+        Future.microtask(() => _cargarParadas());
       }
     }
   }
@@ -75,8 +75,26 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     super.dispose();
   }
 
+  // --- MÉTODO PARA OBTENER PARADAS PENDIENTES ---
+  Future<void> _cargarParadas() async {
+    setState(() => _cargandoParadas = true);
+    try {
+      final paradas = await ref.read(recoleccionRepositoryProvider).getParadasPendientes();
+      if (mounted) {
+        setState(() {
+          _paradasDisponibles = paradas;
+          _cargandoParadas = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _cargandoParadas = false);
+    }
+  }
+
   Future<void> _guardarLote() async {
     if (!_formKey.currentState!.validate()) return;
+
+    setState(() => _isSaving = true);
 
     try {
       final repository = ref.read(loteRepositoryProvider);
@@ -88,17 +106,27 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
         'ubicacion_actual': _ubicacionController.text.trim(),
       };
 
+      int idLoteFinal;
+
       if (_esEdicion) {
-        datosLote['id'] = widget.loteAEditar!.id.toString(); // Agregamos el ID si es edición
+        idLoteFinal = widget.loteAEditar!.id;
+        datosLote['id'] = idLoteFinal.toString();
         await repository.actualizarLote(datosLote);
       } else {
-        await repository.crearLote(datosLote);
+        // ATENCIÓN: Asegúrate de que tu método crearLote retorne un INT (el ID insertado).
+        idLoteFinal = await repository.crearLote(datosLote);
+      }
+
+      // --- LA MAGIA: LLAMAMOS A MAPBOX SI HAY PARADAS ---
+      if (_tipoViajeSeleccionado == 'Principal' && _paradasSeleccionadas.isNotEmpty) {
+        await ref.read(recoleccionRepositoryProvider).optimizarYAsignar(
+          idLote: idLoteFinal,
+          idsRecolecciones: _paradasSeleccionadas.toList(),
+        );
       }
 
       ref.invalidate(lotesProvider);
-      if (_esEdicion) {
-        ref.invalidate(loteDetalleProvider(widget.loteAEditar!.id));
-      }
+      if (_esEdicion) ref.invalidate(loteDetalleProvider(widget.loteAEditar!.id));
 
       if (mounted) {
         Navigator.pop(context);
@@ -115,6 +143,8 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
           SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error),
         );
       }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -144,7 +174,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               const SizedBox(height: 16),
 
               DropdownButtonFormField<String>(
-                value: _tipoViajeSeleccionado, // Usamos value en lugar de initialValue
+                value: _tipoViajeSeleccionado, 
                 decoration: InputDecoration(
                   labelText: 'Tipo de Viaje',
                   prefixIcon: const Icon(Icons.route),
@@ -158,17 +188,17 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                     child: Text(tipo == 'Principal' ? 'Viaje Internacional (USA -> MX)' : 'Ruta Local (Reparto en MX)'),
                   );
                 }).toList(),
-                // Al estar en edición, bloqueamos el cambio de tipo de viaje 
-                // para no romper la logística, a menos que quieras que puedan cambiarlo.
                 onChanged: _esEdicion ? null : (val) { 
                   setState(() {
                     _tipoViajeSeleccionado = val!;
-                    
-                    // PROTECCIÓN: Si al cambiar de tipo, el estatus actual ya no existe en la nueva lista, lo reseteamos.
                     if (!_opcionesEstatusActivas.contains(_estatusSeleccionado)) {
                       _estatusSeleccionado = 'Preparación';
                     }
                   });
+                  // Si cambiamos a Principal, cargamos las paradas
+                  if (val == 'Principal' && _paradasDisponibles.isEmpty) {
+                    _cargarParadas();
+                  }
                 },
               ),
               const SizedBox(height: 32),
@@ -185,7 +215,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               const SizedBox(height: 16),
 
               DropdownButtonFormField<String>(
-                value: _estatusSeleccionado, // Usamos value para que reaccione al setState
+                value: _estatusSeleccionado,
                 decoration: InputDecoration(
                   labelText: 'Estatus del Viaje',
                   prefixIcon: const Icon(Icons.timeline),
@@ -193,12 +223,8 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                   filled: true,
                   fillColor: Colors.white,
                 ),
-                // LLAMAMOS AL GETTER DINÁMICO EN LUGAR DE LA LISTA ESTÁTICA
                 items: _opcionesEstatusActivas.map((estatus) {
-                  return DropdownMenuItem(
-                    value: estatus,
-                    child: Text(estatus),
-                  );
+                  return DropdownMenuItem(value: estatus, child: Text(estatus));
                 }).toList(),
                 onChanged: (val) {
                   setState(() {
@@ -207,13 +233,80 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                 },
               ),
 
+              // --- NUEVA SECCIÓN DE OPTIMIZACIÓN DE PARADAS ---
+              if (_tipoViajeSeleccionado == 'Principal' && !_esEdicion) ...[
+                const SizedBox(height: 32),
+                const Divider(),
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Expanded(
+                      child: Text('Paradas Pendientes (WhatsApp)', 
+                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                    ),
+                    IconButton(
+                      onPressed: _cargarParadas, 
+                      icon: const Icon(Icons.refresh, color: AppColors.primary),
+                      tooltip: 'Recargar',
+                    ),
+                  ],
+                ),
+                const Text('Selecciona las paradas a recolectar. Se ordenarán automáticamente usando Mapbox.', 
+                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const SizedBox(height: 16),
+                
+                if (_cargandoParadas) 
+                  const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
+                else if (_paradasDisponibles.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(20), 
+                    child: Text('No hay ubicaciones pendientes.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))
+                  )
+                else
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Colors.grey.shade300),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _paradasDisponibles.length,
+                      separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.shade200),
+                      itemBuilder: (context, index) {
+                        final p = _paradasDisponibles[index];
+                        // Parseo seguro del ID
+                        final pId = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
+                        final isSelected = _paradasSeleccionadas.contains(pId);
+                        
+                        return CheckboxListTile(
+                          title: Text(p['direccion_texto'] ?? 'Ubicación sin nombre', style: const TextStyle(fontWeight: FontWeight.w600)),
+                          subtitle: Text('Lat: ${p['latitud']}, Lng: ${p['longitud']}', style: const TextStyle(fontSize: 11)),
+                          secondary: const Icon(Icons.location_on_outlined, color: AppColors.primary),
+                          activeColor: AppColors.primary,
+                          value: isSelected,
+                          onChanged: (val) {
+                            setState(() {
+                              if (val == true) _paradasSeleccionadas.add(pId);
+                              else _paradasSeleccionadas.remove(pId);
+                            });
+                          },
+                        );
+                      },
+                    ),
+                  ),
+              ],
+
               const SizedBox(height: 40),
               SizedBox(
                 width: double.infinity,
                 height: 56,
                 child: ElevatedButton(
-                  onPressed: _guardarLote,
-                  child: Text(_esEdicion ? 'ACTUALIZAR VIAJE' : 'CREAR VIAJE'),
+                  onPressed: _isSaving ? null : _guardarLote,
+                  child: _isSaving 
+                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
+                    : Text(_esEdicion ? 'ACTUALIZAR VIAJE' : 'CREAR VIAJE'),
                 ),
               )
             ],
