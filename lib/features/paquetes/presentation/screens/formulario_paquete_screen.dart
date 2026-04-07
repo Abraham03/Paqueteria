@@ -7,10 +7,10 @@ import '../../domain/models/paquete_model.dart';
 import '../providers/paquete_form_provider.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 
-// Importamos los catálogos
-// Ajusta esta ruta según la carpeta donde hayas guardado el catalogo_provider
+// Importamos los catálogos y la pantalla CRUD
 import '../../../catalogos/presentation/providers/catalogo_provider.dart'; 
 import '../../../catalogos/domain/models/ubicacion_model.dart';
+import '../../../catalogos/presentation/screens/catalogo_screen.dart'; // <-- IMPORTAMOS LA PANTALLA
 
 class FormularioPaqueteScreen extends ConsumerStatefulWidget {
   final PaqueteModel? paqueteAEditar;
@@ -38,7 +38,6 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
   final _itemDescController = TextEditingController();
   final _itemCantController = TextEditingController();
 
-  // --- NUEVAS VARIABLES PARA LOS CATÁLOGOS ---
   int? _idEstadoDestino;
   int? _idMunicipioDestino;
   int? _idLocalidadDestino;
@@ -58,7 +57,6 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
       _destinatarioController.text = p.destinatarioNombre;
       _destinatarioTelController.text = p.destinatarioContacto ?? ''; 
       
-      // Cargamos los IDs de ubicación si los tiene
       _idEstadoDestino = p.idEstadoDestino;
       _idMunicipioDestino = p.idMunicipioDestino;
       _idLocalidadDestino = p.idLocalidadDestino;
@@ -109,18 +107,17 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
   }
 
   Step _buildStepDirectorio() {
-    // 1. Cargamos el estado de los providers de catálogo
     final estadosAsync = ref.watch(estadosProvider);
     
-    // 2. Si hay un estado seleccionado, pedimos sus municipios
     final municipiosAsync = _idEstadoDestino != null 
         ? ref.watch(municipiosProvider(_idEstadoDestino!)) 
         : const AsyncValue.data(<UbicacionModel>[]);
         
-    // 3. Si hay un municipio seleccionado, pedimos sus localidades
     final localidadesAsync = _idMunicipioDestino != null 
         ? ref.watch(localidadesProvider(_idMunicipioDestino!)) 
         : const AsyncValue.data(<UbicacionModel>[]);
+
+    final usuario = ref.watch(authProvider).user;
 
     return Step(
       isActive: _currentStep >= 0,
@@ -165,10 +162,35 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
             ),
 
             const SizedBox(height: 16),
-            const Text('Dirección de Destino (México)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+            
+            // --- NUEVO: ROW CON TÍTULO Y BOTÓN DE ADMINISTRAR ---
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text('Dirección de Destino (México)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+                
+                // Solo mostramos el botón de atajo si es Dueño o Administrador
+                if (usuario?.rol == 'Dueño' || usuario?.rol == 'Administrador')
+                  TextButton.icon(
+                    onPressed: () {
+                      // Usamos push para que cuando el usuario cierre el CRUD, regrese al formulario intacto
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => const CatalogoCrudScreen()),
+                      );
+                    },
+                    icon: const Icon(Icons.settings, size: 16),
+                    label: const Text('Administrar'),
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                  ),
+              ],
+            ),
             const SizedBox(height: 12),
 
-            // --- DROPDOWN: ESTADOS ---
             _buildDropdownCatalogo(
               label: 'Estado',
               icon: Icons.map,
@@ -177,7 +199,6 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
               onChanged: (val) {
                 setState(() {
                   _idEstadoDestino = val;
-                  // Al cambiar estado, limpiamos municipio y localidad
                   _idMunicipioDestino = null;
                   _idLocalidadDestino = null;
                 });
@@ -185,7 +206,6 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
             ),
             const SizedBox(height: 12),
 
-            // --- DROPDOWN: MUNICIPIOS ---
             _buildDropdownCatalogo(
               label: 'Municipio',
               icon: Icons.location_city_outlined,
@@ -195,14 +215,12 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
               onChanged: (val) {
                 setState(() {
                   _idMunicipioDestino = val;
-                  // Al cambiar municipio, limpiamos localidad
                   _idLocalidadDestino = null;
                 });
               },
             ),
             const SizedBox(height: 12),
 
-            // --- DROPDOWN: LOCALIDADES ---
             _buildDropdownCatalogo(
               label: 'Localidad / Colonia',
               icon: Icons.pin_drop_outlined,
@@ -221,7 +239,6 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
     );
   }
 
-  // --- WIDGET REUTILIZABLE PARA LOS DROPDOWNS (DRY) ---
   Widget _buildDropdownCatalogo({
     required String label,
     required IconData icon,
@@ -234,7 +251,6 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (e, s) => Text('Error al cargar $label', style: const TextStyle(color: Colors.red)),
       data: (lista) {
-        // Aseguramos que el valor exista en la lista (previene crashes si se borró un catálogo)
         final isValidValue = lista.any((item) => item.id == value);
         final safeValue = isValidValue ? value : null;
 
@@ -450,7 +466,6 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
         'destinatario_nombre': _destinatarioController.text,
         'destinatario_contacto': _destinatarioTelController.text,
         
-        // Enviamos los 3 IDs de los catálogos a PHP
         'id_estado_destino': _idEstadoDestino,
         'id_municipio_destino': _idMunicipioDestino,
         'id_localidad_destino': _idLocalidadDestino,
@@ -464,10 +479,8 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
         datos['estatus_paquete'] = widget.paqueteAEditar!.estatusPaquete; 
       } else {
         datos['id_usuario_registro'] = usuarioId;
-        // NUEVA MÁQUINA DE ESTADOS: El paquete nace en USA
         datos['estatus_paquete'] = 'Recibido USA'; 
 
-        // --- LA MAGIA: Si nos pasaron un viaje, mandamos su ID a PHP ---
         if (widget.loteAsociado != null) {
            datos['id_lote'] = widget.loteAsociado!.id;
         } else {

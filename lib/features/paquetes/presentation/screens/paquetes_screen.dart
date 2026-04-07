@@ -15,7 +15,6 @@ import '../../../../core/utils/paquete_utils.dart'; // <-- IMPORTAMOS EL UTILITA
 
 // IMPORTAMOS EL MODAL
 import '../../../../core/presentation/widgets/paquete_detalle_modal.dart';
-
 Color obtenerColorEstatusGlobal(String estatus) {
   if (estatus == 'Recibido USA') return AppColors.accent;
   if (estatus == 'En Bodega México') return AppColors.primary;
