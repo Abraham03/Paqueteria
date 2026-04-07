@@ -45,6 +45,25 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
 
   bool get _esEdicion => widget.loteAEditar != null;
 
+  // --- NUEVA LÓGICA: Seleccionar Todo ---
+  bool get _todasSeleccionadas => 
+    _paradasDisponibles.isNotEmpty && 
+    _paradasSeleccionadas.length == _paradasDisponibles.length;
+
+  void _toggleSeleccionarTodas() {
+    setState(() {
+      if (_todasSeleccionadas) {
+        _paradasSeleccionadas.clear(); // Deseleccionar todo
+      } else {
+        // Seleccionar todo
+        for (var p in _paradasDisponibles) {
+          final pId = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
+          _paradasSeleccionadas.add(pId);
+        }
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -83,7 +102,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     }
   }
 
-  // --- FUNCIÓN SEGURA PARA LEER GPS ---
   Future<Position?> _obtenerGPS() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) throw 'Los servicios de GPS están desactivados en el teléfono.';
@@ -117,7 +135,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       double? lngOrigen;
       String? enlaceOrigen;
 
-      // 1. Obtenemos el GPS justo antes de guardar si el usuario lo pidió
       if (!_esEdicion && _tipoViajeSeleccionado == 'Principal' && _definirOrigen && _metodoOrigen == 'GPS') {
         final position = await _obtenerGPS();
         if (position != null) {
@@ -128,7 +145,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
         enlaceOrigen = _enlaceOrigenController.text.trim();
       }
 
-      // 2. Guardamos el Lote en la BD
       final repository = ref.read(loteRepositoryProvider);
       final datosLote = {
         'nombre_viaje': _nombreController.text.trim(),
@@ -146,7 +162,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
         idLoteFinal = await repository.crearLote(datosLote);
       }
 
-      // 3. Enviamos toda la inteligencia a Mapbox
       if (_tipoViajeSeleccionado == 'Principal' && _paradasSeleccionadas.isNotEmpty && !_esEdicion) {
         await ref.read(recoleccionRepositoryProvider).optimizarYAsignar(
           idLote: idLoteFinal,
@@ -249,7 +264,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                 onChanged: (val) { setState(() => _estatusSeleccionado = val!); },
               ),
 
-              // --- SECCIÓN DE OPTIMIZACIÓN LOGÍSTICA ---
               if (_tipoViajeSeleccionado == 'Principal' && !_esEdicion) ...[
                 const SizedBox(height: 32),
                 const Divider(),
@@ -258,7 +272,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                 const Text('Inteligencia Logística', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                 const SizedBox(height: 8),
 
-                // Switch: Definir Origen
                 SwitchListTile(
                   title: const Text('Definir punto de partida', style: TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: const Text('Mapbox usará este punto como el inicio de la ruta.', style: TextStyle(fontSize: 12)),
@@ -267,7 +280,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                   onChanged: (val) => setState(() => _definirOrigen = val),
                 ),
 
-                // Controles condicionales si activó el origen
                 if (_definirOrigen)
                   Container(
                     margin: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
@@ -307,7 +319,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                     ),
                   ),
 
-                // Switch: Ruta Circular
                 SwitchListTile(
                   title: const Text('Ruta Circular (Roundtrip)', style: TextStyle(fontWeight: FontWeight.bold)),
                   subtitle: const Text('Optimiza la ruta obligando al chofer a terminar donde empezó.', style: TextStyle(fontSize: 12)),
@@ -317,13 +328,33 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                 ),
 
                 const SizedBox(height: 24),
+                
+                // --- CABECERA DE PARADAS CON EL BOTÓN SELECCIONAR TODO ---
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('Paradas Pendientes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                    IconButton(onPressed: _cargarParadas, icon: const Icon(Icons.refresh, color: AppColors.primary)),
+                    const Expanded(child: Text('Paradas Pendientes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                    if (_paradasDisponibles.isNotEmpty)
+                      TextButton.icon(
+                        onPressed: _toggleSeleccionarTodas,
+                        icon: Icon(_todasSeleccionadas ? Icons.deselect : Icons.select_all, size: 18),
+                        label: Text(_todasSeleccionadas ? 'Deseleccionar' : 'Todas'),
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.primary,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          minimumSize: Size.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                      ),
+                    IconButton(
+                      onPressed: _cargarParadas, 
+                      icon: const Icon(Icons.refresh, color: AppColors.primary),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
                   ],
                 ),
+                
+                const SizedBox(height: 8),
                 
                 if (_cargandoParadas) 
                   const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
