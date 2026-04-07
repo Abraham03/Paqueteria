@@ -15,8 +15,9 @@ import '../../../catalogos/presentation/screens/catalogo_screen.dart'; // <-- IM
 class FormularioPaqueteScreen extends ConsumerStatefulWidget {
   final PaqueteModel? paqueteAEditar;
   final LoteModel? loteAsociado;
+  final int? idRecoleccion;
 
-  const FormularioPaqueteScreen({super.key, this.paqueteAEditar, this.loteAsociado});
+  const FormularioPaqueteScreen({super.key, this.paqueteAEditar, this.loteAsociado, this.idRecoleccion});
 
   @override
   ConsumerState<FormularioPaqueteScreen> createState() => _FormularioPaqueteScreenState();
@@ -480,6 +481,7 @@ class _FormularioPaqueteScreenState extends ConsumerState<FormularioPaqueteScree
       } else {
         datos['id_usuario_registro'] = usuarioId;
         datos['estatus_paquete'] = 'Recibido USA'; 
+        datos['id_recoleccion'] = widget.idRecoleccion;
 
         if (widget.loteAsociado != null) {
            datos['id_lote'] = widget.loteAsociado!.id;

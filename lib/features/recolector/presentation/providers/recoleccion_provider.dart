@@ -27,7 +27,6 @@ class RecoleccionRepository {
     }
   }
 
-  // --- LEER LAS PARADAS DE LA API ---
   Future<List<dynamic>> getParadasPendientes() async {
     final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/pendientes');
     try {
@@ -44,7 +43,6 @@ class RecoleccionRepository {
     }
   }
 
-  // --- ENVIAR PARADAS SELECCIONADAS A MAPBOX (VÍA PHP) ---
   Future<void> optimizarYAsignar({required int idLote, required List<int> idsRecolecciones}) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/optimizar');
     try {
@@ -55,7 +53,7 @@ class RecoleccionRepository {
           'id_lote': idLote,
           'ids_recolecciones': idsRecolecciones,
         }),
-      ).timeout(const Duration(seconds: 30)); // Le damos más tiempo por si la API de Mapbox tarda
+      ).timeout(const Duration(seconds: 30)); 
 
       final decodedData = jsonDecode(response.body);
       if (response.statusCode != 200 || decodedData['status'] == 'error') {
@@ -65,11 +63,33 @@ class RecoleccionRepository {
       throw Exception(e.toString().replaceAll('Exception: ', ''));
     }
   }
+
+  // --- NUEVO MÉTODO FASE C: LEER LA RUTA OPTIMIZADA DE UN VIAJE ---
+  Future<List<dynamic>> getParadasPorLote(int idLote) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/por-lote?id_lote=$idLote');
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 15));
+      final decodedData = jsonDecode(response.body);
+      
+      if (response.statusCode == 200 && decodedData['status'] == 'success') {
+        return decodedData['data'] ?? [];
+      } else {
+        throw Exception(decodedData['message'] ?? 'Error al cargar la ruta');
+      }
+    } catch (e) {
+      throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
 }
 
 final recoleccionRepositoryProvider = Provider((ref) => RecoleccionRepository());
 
-// Notifier para manejar el estado de "Cargando" al guardar un link de Whatsapp
+// --- NUEVO PROVIDER FASE C: Escucha la ruta de un viaje específico ---
+final paradasPorLoteProvider = FutureProvider.family<List<dynamic>, int>((ref, idLote) async {
+  return ref.read(recoleccionRepositoryProvider).getParadasPorLote(idLote);
+});
+
+
 class CrearRecoleccionNotifier extends Notifier<bool> {
   @override
   bool build() => false;

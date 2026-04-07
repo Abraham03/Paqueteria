@@ -17,14 +17,12 @@ import '../../../paquetes/presentation/providers/paquete_provider.dart';
 import '../../../paquetes/presentation/screens/formulario_paquete_screen.dart';
 import 'formulario_lote_screen.dart';
 
-// =========================================================================
-// PANTALLA PRINCIPAL
-// =========================================================================
+import '../../../recolector/presentation/screens/ruta_recoleccion_widget.dart';// Ajusta la ruta
+
 class LoteDetalleScreen extends ConsumerWidget {
   final int loteId;
   const LoteDetalleScreen({super.key, required this.loteId});
 
-  // FUNCIÓN PARA ENTREGA DIRECTA DESDE LA TARJETA
   Future<void> _entregarPaqueteDirecto(BuildContext context, WidgetRef ref, PaqueteModel paquete, int idLote) async {
     try {
       showDialog(
@@ -133,73 +131,76 @@ class LoteDetalleScreen extends ConsumerWidget {
                 ),
               ),
 
-              SliverPadding(
-                padding: const EdgeInsets.all(20),
-                sliver: SliverToBoxAdapter(
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text('Manifiesto de Carga', style: Theme.of(context).textTheme.titleLarge),
-                      Text('${paquetes.length} cajas', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
-                    ],
-                  ),
-                ),
-              ),
-
-              if (paquetes.isEmpty)
-                const SliverToBoxAdapter(
-                  child: Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(40.0),
-                      child: Text('El viaje está vacío. Asigna paquetes para empezar.', 
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
+              if (lote.tipoViaje == 'Principal')
+                // --- COMPONENTE EXTRAÍDO (DRY) ---
+                SliverToBoxAdapter(
+                  child: RutaRecoleccionWidget(lote: lote),
+                )
+              else ...[
+                SliverPadding(
+                  padding: const EdgeInsets.all(20),
+                  sliver: SliverToBoxAdapter(
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text('Manifiesto de Carga', style: Theme.of(context).textTheme.titleLarge),
+                        Text('${paquetes.length} cajas', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
+                      ],
                     ),
                   ),
-                )
-              else
-                SliverList(
-                  delegate: SliverChildBuilderDelegate(
-                    (context, index) {
-                      final p = paquetes[index];
-                      final bool entregado = p.estatusPaquete == 'Entregado';
-
-                      // 1. REEMPLAZO POR TU PAQUETE CARD WIDGET
-                      return PaqueteCardWidget(
-                        paquete: p,
-                        // El botón naranja se inyecta en el trailing del widget si cumple la condición
-                        trailing: (esRepartoEnTransito && !entregado)
-                          ? ElevatedButton(
-                              style: ElevatedButton.styleFrom(backgroundColor: AppColors.highlight),
-                              onPressed: () => _entregarPaqueteDirecto(context, ref, p, lote.id),
-                              child: const Text('ENTREGAR', style: TextStyle(color: Colors.white, fontSize: 12)),
-                            )
-                          : null, // Si es nulo, tu Card mostrará el badge del estatus por defecto
-                        onTap: () {
-                          showModalBottomSheet(
-                            context: context,
-                            isScrollControlled: true,
-                            backgroundColor: Colors.transparent,
-                            builder: (context) => PaqueteDetalleModal(paqueteId: p.id, estatusColor: AppColors.success),
-                          );
-                        },
-                      );
-                    },
-                    childCount: paquetes.length,
-                  ),
                 ),
+
+                if (paquetes.isEmpty)
+                  const SliverToBoxAdapter(
+                    child: Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(40.0),
+                        child: Text('El viaje está vacío. Asigna paquetes para empezar.', 
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
+                      ),
+                    ),
+                  )
+                else
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final p = paquetes[index];
+                        final bool entregado = p.estatusPaquete == 'Entregado';
+
+                        return PaqueteCardWidget(
+                          paquete: p,
+                          trailing: (esRepartoEnTransito && !entregado)
+                            ? ElevatedButton(
+                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.highlight),
+                                onPressed: () => _entregarPaqueteDirecto(context, ref, p, lote.id),
+                                child: const Text('ENTREGAR', style: TextStyle(color: Colors.white, fontSize: 12)),
+                              )
+                            : null, 
+                          onTap: () {
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (context) => PaqueteDetalleModal(paqueteId: p.id, estatusColor: AppColors.success),
+                            );
+                          },
+                        );
+                      },
+                      childCount: paquetes.length,
+                    ),
+                  ),
+              ],
                 
               const SliverToBoxAdapter(child: SizedBox(height: 100)),
             ],
           );
         },
       ),
-      
       floatingActionButton: _buildFloatingActionButton(context, ref, detalleState.value),
     );
   }
 
-  // --- MÉTODOS PRIVADOS (Timeline, Botón Flotante, Etc) ---
   Widget _buildTimeline(LoteModel lote) {
     final isReparto = lote.tipoViaje == 'Reparto';
     final List<Map<String, dynamic>> steps = isReparto 
@@ -349,6 +350,3 @@ class LoteDetalleScreen extends ConsumerWidget {
     );
   }
 }
-
-
-
