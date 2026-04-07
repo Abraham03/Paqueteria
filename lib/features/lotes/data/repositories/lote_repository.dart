@@ -139,4 +139,37 @@ class LoteRepository {
     }
   }
 
+  // --- NUEVA FUNCIÓN: Eliminar Viaje ---
+  // --- FUNCIÓN: Eliminar Viaje (Usando POST para coincidir con router.php) ---
+  Future<bool> eliminarLote(int id) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/lotes/eliminar'); // Quitamos el ?id= de la URL
+    
+    try {
+      // Usamos el método POST y mandamos el ID en el body (como tus otras funciones)
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'id': id}), // Mandamos el ID aquí
+      ).timeout(const Duration(seconds: 15));
+
+      Map<String, dynamic> decodedData;
+      try {
+        decodedData = jsonDecode(response.body);
+      } catch (_) {
+        throw Exception('Respuesta inválida del servidor (Status: ${response.statusCode})');
+      }
+
+      if (response.statusCode == 200 && decodedData['status'] == 'success') {
+        return true;
+      }
+      
+      throw Exception(decodedData['message'] ?? 'Error al eliminar lote');
+      
+    } on TimeoutException catch (_) {
+      throw Exception('El servidor tardó demasiado en responder. Intenta de nuevo.');
+    } catch (e) {
+      throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
+
 }

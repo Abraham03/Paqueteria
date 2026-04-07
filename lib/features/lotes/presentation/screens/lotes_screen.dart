@@ -11,6 +11,16 @@ import 'lote_detalle_screen.dart';
 class LotesScreen extends ConsumerWidget {
   const LotesScreen({super.key});
 
+  // --- NUEVA FUNCIÓN PRIVADA (DRY) PARA ORDENAR ---
+  // Pone los viajes activos arriba y los finalizados al final de la lista.
+  void _ordenarLotesActivosArriba(List<LoteModel> lista) {
+    lista.sort((a, b) {
+      int pesoA = a.estatusLote == 'Finalizado' ? 1 : 0;
+      int pesoB = b.estatusLote == 'Finalizado' ? 1 : 0;
+      return pesoA.compareTo(pesoB);
+    });
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final lotesState = ref.watch(lotesProvider);
@@ -51,7 +61,11 @@ class LotesScreen extends ConsumerWidget {
             final lotesPrincipales = lotes.where((l) => l.tipoViaje == 'Principal').toList();
             final lotesReparto = lotes.where((l) => l.tipoViaje == 'Reparto').toList();
 
-            // 4. Usamos TabBarView para mostrar las dos listas
+            // 4. Aplicamos el ordenamiento (Activos arriba, Finalizados abajo)
+            _ordenarLotesActivosArriba(lotesPrincipales);
+            _ordenarLotesActivosArriba(lotesReparto);
+
+            // 5. Usamos TabBarView para mostrar las dos listas
             return TabBarView(
               children: [
                 _buildListaLotes(context, ref, lotesPrincipales, 'No hay viajes internacionales activos'),
@@ -112,40 +126,48 @@ class LotesScreen extends ConsumerWidget {
         itemBuilder: (context, index) {
           final lote = lotesFiltrados[index];
           final estatusColor = _getColor(lote.estatusLote);
+          
+          // Opcional: Bajarle un poco la opacidad a las tarjetas finalizadas para que no resalten tanto
+          final isFinalizado = lote.estatusLote == 'Finalizado';
 
-          return Card(
-            margin: const EdgeInsets.symmetric(vertical: 8),
-            child: ListTile(
-              contentPadding: const EdgeInsets.all(16),
-              leading: CircleAvatar(
-                // ignore: deprecated_member_use
-                backgroundColor: AppColors.primary.withOpacity(0.1),
-                child: const Icon(Icons.local_shipping, color: AppColors.primary),
-              ),
-              title: Text(lote.nombreViaje, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 18)),
-              subtitle: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const SizedBox(height: 6),
-                  Row(
-                    children: [
-                      const Icon(Icons.location_on, size: 16, color: AppColors.textSecondary),
-                      const SizedBox(width: 4),
-                      Text(lote.ubicacionActual, style: Theme.of(context).textTheme.bodyMedium),
-                    ],
+          return Opacity(
+            opacity: isFinalizado ? 0.6 : 1.0, // <-- Toque visual profesional
+            child: Card(
+              margin: const EdgeInsets.symmetric(vertical: 8),
+              child: ListTile(
+                contentPadding: const EdgeInsets.all(16),
+                leading: CircleAvatar(
+                  backgroundColor: isFinalizado ? Colors.grey.withOpacity(0.1) : AppColors.primary.withOpacity(0.1),
+                  child: Icon(
+                    isFinalizado ? Icons.task_alt : Icons.local_shipping, 
+                    color: isFinalizado ? Colors.grey : AppColors.primary
                   ),
-                  const SizedBox(height: 8),
-                  Text('Estatus: ${lote.estatusLote}', 
-                    style: TextStyle(color: estatusColor, fontWeight: FontWeight.bold)),
-                ],
+                ),
+                title: Text(lote.nombreViaje, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontSize: 18)),
+                subtitle: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.location_on, size: 16, color: AppColors.textSecondary),
+                        const SizedBox(width: 4),
+                        Text(lote.ubicacionActual, style: Theme.of(context).textTheme.bodyMedium),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Text('Estatus: ${lote.estatusLote}', 
+                      style: TextStyle(color: estatusColor, fontWeight: FontWeight.bold)),
+                  ],
+                ),
+                trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => LoteDetalleScreen(loteId: lote.id)),
+                  );
+                },
               ),
-              trailing: const Icon(Icons.arrow_forward_ios, size: 16, color: AppColors.textSecondary),
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => LoteDetalleScreen(loteId: lote.id)),
-                );
-              },
             ),
           );
         },

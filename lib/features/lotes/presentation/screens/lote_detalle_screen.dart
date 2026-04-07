@@ -17,7 +17,7 @@ import '../../../paquetes/presentation/providers/paquete_provider.dart';
 import '../../../paquetes/presentation/screens/formulario_paquete_screen.dart';
 import 'formulario_lote_screen.dart';
 
-import '../../../recolector/presentation/screens/ruta_recoleccion_widget.dart';// Ajusta la ruta
+import '../../../recolector/presentation/screens/ruta_recoleccion_widget.dart';
 
 class LoteDetalleScreen extends ConsumerWidget {
   final int loteId;
@@ -58,6 +58,54 @@ class LoteDetalleScreen extends ConsumerWidget {
     }
   }
 
+  // --- NUEVA FUNCIÓN: Diálogo de Confirmación de Eliminación ---
+  Future<void> _confirmarEliminacion(BuildContext context, WidgetRef ref, LoteModel lote) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('¿Eliminar Viaje?'),
+        content: Text('Estás a punto de eliminar el viaje "${lote.nombreViaje}".\n\n'
+            'Los paquetes y paradas asignadas NO se borrarán, pero regresarán a la bodega.\n\n'
+            'Esta acción no se puede deshacer.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('CANCELAR', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('SÍ, ELIMINAR', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar == true) {
+      try {
+        // Mostramos un loader mientras procesa
+        showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+        
+        await ref.read(loteRepositoryProvider).eliminarLote(lote.id);
+        
+        Navigator.pop(context); // Cerramos el loader
+        
+        // Refrescamos la lista principal y salimos de la pantalla
+        ref.invalidate(lotesProvider);
+        Navigator.pop(context); 
+        
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Viaje eliminado y recursos liberados'), backgroundColor: AppColors.success),
+        );
+      } catch (e) {
+        Navigator.pop(context); // Cerramos el loader en caso de error
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final detalleState = ref.watch(loteDetalleProvider(loteId));
@@ -68,15 +116,36 @@ class LoteDetalleScreen extends ConsumerWidget {
         centerTitle: true,
         actions: [
           detalleState.maybeWhen(
-            data: (lote) => IconButton(
-              icon: const Icon(Icons.edit_location_alt_outlined),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)),
+            data: (lote) {
+              // --- BLINDAJE DE HISTORIAL ---
+              // Si el viaje está Finalizado, no mostramos los botones de Editar ni Eliminar
+              if (lote.estatusLote == 'Finalizado') {
+                return const Padding(
+                  padding: EdgeInsets.only(right: 16.0),
+                  child: Center(child: Icon(Icons.lock_outline, color: Colors.grey)), // Indicador visual de que está bloqueado
                 );
-              },
-            ),
+              }
+
+              return Row(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.edit_location_alt_outlined),
+                    tooltip: 'Editar Viaje',
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)),
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                    tooltip: 'Eliminar Viaje',
+                    onPressed: () => _confirmarEliminacion(context, ref, lote),
+                  ),
+                ],
+              );
+            },
             orElse: () => const SizedBox.shrink(),
           ),
         ],
@@ -126,13 +195,31 @@ class LoteDetalleScreen extends ConsumerWidget {
                             label: const Text('ACTUALIZAR RASTREO / ESTATUS'),
                           ),
                         )
+                      else 
+                        // Mensaje de solo lectura si está finalizado
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: AppColors.success.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppColors.success.withOpacity(0.5))
+                          ),
+                          child: const Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(Icons.task_alt, color: AppColors.success),
+                              SizedBox(width: 8),
+                              Text('Este viaje ha concluido exitosamente', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        )
                     ],
                   ),
                 ),
               ),
 
               if (lote.tipoViaje == 'Principal')
-                // --- COMPONENTE EXTRAÍDO (DRY) ---
                 SliverToBoxAdapter(
                   child: RutaRecoleccionWidget(lote: lote),
                 )

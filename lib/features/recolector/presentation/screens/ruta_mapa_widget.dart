@@ -99,7 +99,7 @@ class RutaMapaWidget extends StatelessWidget {
 
     final caminoReal = _extraerCaminoReal();
     
-    // Calculamos el encuadre para asegurar que TODO EL CAMINO sea visible
+    // Calculamos el encuadre para asegurar que TODOs EL CAMINO sea visible
     final bounds = caminoReal.length > 1 ? LatLngBounds.fromPoints(caminoReal) : null;
 
     return Container(
