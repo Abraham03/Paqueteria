@@ -21,20 +21,32 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   final _ubicacionController = TextEditingController();
   
   String _estatusSeleccionado = 'Preparación';
-  String _tipoViajeSeleccionado = 'Principal'; // NUEVO: Valor por defecto
-
-  final List<String> _opcionesEstatus = [
-    'Preparación',
-    'En Tránsito',
-    'En Aduana',
-    'En Bodega México',
-    'Finalizado'
-  ];
+  String _tipoViajeSeleccionado = 'Principal'; 
 
   final List<String> _opcionesTipoViaje = [
     'Principal',
     'Reparto'
   ];
+
+  // --- NUEVO: LÓGICA DINÁMICA (GETTER) ---
+  // Retorna la lista correcta dependiendo del tipo de viaje seleccionado
+  List<String> get _opcionesEstatusActivas {
+    if (_tipoViajeSeleccionado == 'Reparto') {
+      return [
+        'Preparación',
+        'En Tránsito',
+        'Finalizado'
+      ];
+    }
+    // Si es Principal, retorna todas
+    return [
+      'Preparación',
+      'En Tránsito',
+      'En Aduana',
+      'En Bodega México',
+      'Finalizado'
+    ];
+  }
 
   bool get _esEdicion => widget.loteAEditar != null;
 
@@ -44,8 +56,15 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     if (_esEdicion) {
       _nombreController.text = widget.loteAEditar!.nombreViaje;
       _ubicacionController.text = widget.loteAEditar!.ubicacionActual;
-      _estatusSeleccionado = widget.loteAEditar!.estatusLote;
-      _tipoViajeSeleccionado = widget.loteAEditar!.tipoViaje; // Cargamos el tipo de viaje actual
+      _tipoViajeSeleccionado = widget.loteAEditar!.tipoViaje; 
+      
+      // Validamos que el estatus guardado sea compatible con las opciones actuales, 
+      // de lo contrario, ponemos 'Preparación' por defecto
+      if (_opcionesEstatusActivas.contains(widget.loteAEditar!.estatusLote)) {
+        _estatusSeleccionado = widget.loteAEditar!.estatusLote;
+      } else {
+        _estatusSeleccionado = 'Preparación';
+      }
     }
   }
 
@@ -62,23 +81,18 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     try {
       final repository = ref.read(loteRepositoryProvider);
 
+      final datosLote = {
+        'nombre_viaje': _nombreController.text.trim(),
+        'tipo_viaje': _tipoViajeSeleccionado,
+        'estatus_lote': _estatusSeleccionado,
+        'ubicacion_actual': _ubicacionController.text.trim(),
+      };
+
       if (_esEdicion) {
-        // Envolvemos los datos en { } para enviar un Map<String, dynamic>
-        await repository.actualizarLote({
-          'id': widget.loteAEditar!.id,
-          'nombre_viaje': _nombreController.text.trim(),
-          'tipo_viaje': _tipoViajeSeleccionado,
-          'estatus_lote': _estatusSeleccionado,
-          'ubicacion_actual': _ubicacionController.text.trim(),
-        });
+        datosLote['id'] = widget.loteAEditar!.id.toString(); // Agregamos el ID si es edición
+        await repository.actualizarLote(datosLote);
       } else {
-        // Envolvemos los datos en { } para enviar un Map<String, dynamic>
-        await repository.crearLote({
-          'nombre_viaje': _nombreController.text.trim(),
-          'tipo_viaje': _tipoViajeSeleccionado,
-          'estatus_lote': _estatusSeleccionado,
-          'ubicacion_actual': _ubicacionController.text.trim(),
-        });
+        await repository.crearLote(datosLote);
       }
 
       ref.invalidate(lotesProvider);
@@ -129,9 +143,8 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               ),
               const SizedBox(height: 16),
 
-              // --- NUEVO: DROPDOWN PARA TIPO DE VIAJE ---
               DropdownButtonFormField<String>(
-                initialValue: _tipoViajeSeleccionado,
+                value: _tipoViajeSeleccionado, // Usamos value en lugar de initialValue
                 decoration: InputDecoration(
                   labelText: 'Tipo de Viaje',
                   prefixIcon: const Icon(Icons.route),
@@ -145,9 +158,16 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                     child: Text(tipo == 'Principal' ? 'Viaje Internacional (USA -> MX)' : 'Ruta Local (Reparto en MX)'),
                   );
                 }).toList(),
-                onChanged: (val) {
+                // Al estar en edición, bloqueamos el cambio de tipo de viaje 
+                // para no romper la logística, a menos que quieras que puedan cambiarlo.
+                onChanged: _esEdicion ? null : (val) { 
                   setState(() {
                     _tipoViajeSeleccionado = val!;
+                    
+                    // PROTECCIÓN: Si al cambiar de tipo, el estatus actual ya no existe en la nueva lista, lo reseteamos.
+                    if (!_opcionesEstatusActivas.contains(_estatusSeleccionado)) {
+                      _estatusSeleccionado = 'Preparación';
+                    }
                   });
                 },
               ),
@@ -165,7 +185,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               const SizedBox(height: 16),
 
               DropdownButtonFormField<String>(
-                initialValue: _estatusSeleccionado,
+                value: _estatusSeleccionado, // Usamos value para que reaccione al setState
                 decoration: InputDecoration(
                   labelText: 'Estatus del Viaje',
                   prefixIcon: const Icon(Icons.timeline),
@@ -173,7 +193,8 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                   filled: true,
                   fillColor: Colors.white,
                 ),
-                items: _opcionesEstatus.map((estatus) {
+                // LLAMAMOS AL GETTER DINÁMICO EN LUGAR DE LA LISTA ESTÁTICA
+                items: _opcionesEstatusActivas.map((estatus) {
                   return DropdownMenuItem(
                     value: estatus,
                     child: Text(estatus),

@@ -6,29 +6,41 @@ class PaqueteUtils {
     required List<PaqueteModel> paquetes, 
     required String query, 
     required String tipoFiltro,
-    required String estatusFiltro, // <-- NUEVO PARÁMETRO
+    required String estatusFiltro,
   }) {
     return paquetes.where((p) {
-      // 1. Primero filtramos por estatus (Es más rápido descartar por estatus)
+      // 1. Filtro rápido por estatus
       if (estatusFiltro != 'Todos' && p.estatusPaquete != estatusFiltro) {
         return false;
       }
 
-      // 2. Si pasó el filtro de estatus, aplicamos la búsqueda de texto
+      // Si no hay texto, regresamos el paquete (ya pasó el filtro de estatus)
       if (query.trim().isEmpty) return true;
-      final q = query.toLowerCase().trim();
+      
+      // 2. BÚSQUEDA PROFESIONAL MULTI-TÉRMINO
+      // Dividimos lo que escribió el usuario por espacios. 
+      // Ejemplo: "Centro Hidalgo" -> ['centro', 'hidalgo']
+      final terms = query.toLowerCase().trim().split(RegExp(r'\s+'));
       
       switch (tipoFiltro) {
         case 'Guía':
-          return p.guiaRastreo.toLowerCase().contains(q);
+          final guia = p.guiaRastreo.toLowerCase();
+          // ¿Contiene TODAS las palabras que escribió?
+          return terms.every((term) => guia.contains(term));
+          
         case 'Origen':
           final origen = p.remitenteOrigen?.toLowerCase() ?? '';
           final remitente = p.remitenteNombre.toLowerCase();
-          return origen.contains(q) || remitente.contains(q);
+          final busquedaUnida = '$origen $remitente';
+          return terms.every((term) => busquedaUnida.contains(term));
+          
         case 'Destino':
           final destino = p.destinatarioOrigen?.toLowerCase() ?? '';
           final destinatario = p.destinatarioNombre.toLowerCase();
-          return destino.contains(q) || destinatario.contains(q);
+          // Al unir todo, si escribe "Juan Ixmiquilpan", lo encontrará perfectamente.
+          final busquedaUnida = '$destino $destinatario';
+          return terms.every((term) => busquedaUnida.contains(term));
+          
         default:
           return true;
       }

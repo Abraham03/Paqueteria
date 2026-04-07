@@ -8,7 +8,6 @@ import '../../../features/lotes/presentation/providers/lote_provider.dart';
 import '../../../features/paquetes/presentation/providers/paquete_provider.dart';
 import '../../theme/app_colors.dart';
 import '../../utils/paquete_utils.dart';
-import '../screens/escaner_screen.dart';
 import 'buscador_filtro_widget.dart';
 import 'paquete_card_widget.dart';
 import 'shared_modal_layout.dart';
@@ -24,7 +23,7 @@ class ModalCargaMasiva extends ConsumerStatefulWidget {
 class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
   String _searchQuery = '';
   String _filterType = 'Destino'; 
-  String _statusFilter = 'Todos'; // <-- NUEVA VARIABLE PARA CUMPLIR CON EL WIDGET
+  String _statusFilter = 'Todos'; 
   final Set<int> _selectedIds = {}; 
   bool _isLoading = false;
 
@@ -36,14 +35,14 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
       ref.invalidate(loteDetalleProvider(widget.lote.id));
       ref.invalidate(paquetesProvider);
 
-      if (!mounted) return; // <-- CORRECCIÓN LINTER
+      if (!mounted) return; 
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('¡${_selectedIds.length} paquetes asignados!'), backgroundColor: AppColors.success)
       );
       
     } catch (e) {
-      if (!mounted) return; // <-- CORRECCIÓN LINTER
+      if (!mounted) return; 
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -57,7 +56,6 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
     
     final paquetesDisponibles = todosLosPaquetes.where((p) => p.estatusPaquete == estatusPermitido).toList();
     
-    // <-- CORRECCIÓN: PARÁMETROS NOMBRADOS (SOLID/DRY) -->
     final paquetesFiltrados = PaqueteUtils.filtrar(
       paquetes: paquetesDisponibles, 
       query: _searchQuery, 
@@ -70,49 +68,15 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
 
     return SharedModalLayout(
       titulo: 'Cargar Camioneta',
-      buscador: Row(
-        children: [
-          // <-- EL BUSCADOR ACTUALIZADO -->
-          Expanded(
-            child: BuscadorFiltroWidget(
-              filterType: _filterType,
-              filterOptions: const ['Destino', 'Origen', 'Guía'],
-              onFilterChanged: (val) => setState(() => _filterType = val),
-              onSearchChanged: (val) => setState(() => _searchQuery = val),
-              statusFilter: _statusFilter,
-              statusOptions: const ['Todos'], // Solo necesitamos 'Todos' aquí
-              onStatusChanged: (val) => setState(() => _statusFilter = val),
-            ),
-          ),
-          const SizedBox(width: 8),
-          
-          // <-- BOTÓN DE ESCÁNER RESCATADO --->
-          Container(
-            decoration: BoxDecoration(color: AppColors.primary, borderRadius: BorderRadius.circular(12)),
-            child: IconButton(
-              icon: const Icon(Icons.qr_code_scanner, color: Colors.white),
-              onPressed: () async {
-                FocusScope.of(context).unfocus();
-                final barcode = await Navigator.push<String>(context, MaterialPageRoute(builder: (context) => const EscanerScreen()));
-                
-                if (!mounted) return; // <-- CORRECCIÓN LINTER DE CONTEXTO
-
-                if (barcode != null && barcode.isNotEmpty) {
-                  final p = paquetesDisponibles.where((p) => p.guiaRastreo == barcode).firstOrNull;
-                  if (p != null) {
-                    setState(() => _selectedIds.add(p.id));
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Paquete agregado a la selección')));
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                      content: Text('Código no encontrado o no está en Bodega'), 
-                      backgroundColor: AppColors.error)
-                    );
-                  }
-                }
-              },
-            ),
-          )
-        ],
+      // <-- CORRECCIÓN: SIN EXPANDED -->
+      buscador: BuscadorFiltroWidget(
+        filterType: _filterType,
+        filterOptions: const ['Destino', 'Origen', 'Guía'],
+        onFilterChanged: (val) => setState(() => _filterType = val),
+        onSearchChanged: (val) => setState(() => _searchQuery = val),
+        statusFilter: _statusFilter,
+        statusOptions: const ['Todos'], 
+        onStatusChanged: (val) => setState(() => _statusFilter = val),
       ),
       cabeceraExtra: Column(
         children: [
