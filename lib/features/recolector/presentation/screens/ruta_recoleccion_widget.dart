@@ -7,6 +7,9 @@ import '../../../lotes/domain/models/lote_model.dart';
 import '../../../paquetes/presentation/screens/formulario_paquete_screen.dart';
 import '../providers/recoleccion_provider.dart';
 
+// --- IMPORTAMOS NUESTRO NUEVO WIDGET DE MAPA ---
+import 'ruta_mapa_widget.dart';
+
 class RutaRecoleccionWidget extends ConsumerWidget {
   final LoteModel lote;
 
@@ -37,6 +40,11 @@ class RutaRecoleccionWidget extends ConsumerWidget {
               child: Text('Ruta de Recolección (${paradas.length} paradas)', 
                 style: Theme.of(context).textTheme.titleLarge),
             ),
+            
+            // --- INYECTAMOS EL MAPA AQUÍ (DRY & SOLID) ---
+            RutaMapaWidget(paradas: paradas),
+            const SizedBox(height: 8),
+
             ListView.separated(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),

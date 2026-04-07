@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart'; // NUEVO PAQUETE
 
 import '../../../../core/presentation/widgets/custom_text_form_field.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/lote_model.dart';
 import '../providers/lote_provider.dart';
-
-// --- IMPORTA TU PROVIDER DE RECOLECCIONES ---
-// Ajusta esta ruta de acuerdo a donde guardaste recoleccion_provider.dart
 import '../../../recolector/presentation/providers/recoleccion_provider.dart';
 
 class FormularioLoteScreen extends ConsumerStatefulWidget {
@@ -27,21 +25,21 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   String _estatusSeleccionado = 'Preparación';
   String _tipoViajeSeleccionado = 'Principal'; 
 
-  final List<String> _opcionesTipoViaje = [
-    'Principal',
-    'Reparto'
-  ];
+  final List<String> _opcionesTipoViaje = ['Principal', 'Reparto'];
 
-  // --- VARIABLES PARA MAPBOX / PARADAS ---
   List<dynamic> _paradasDisponibles = [];
   final Set<int> _paradasSeleccionadas = {};
   bool _cargandoParadas = false;
-  bool _isSaving = false; // Para mostrar loader en el botón guardar
+  bool _isSaving = false;
+
+  // --- NUEVAS VARIABLES DE OPTIMIZACIÓN LOGÍSTICA ---
+  bool _definirOrigen = false;
+  bool _rutaCircular = false;
+  String _metodoOrigen = 'GPS'; // 'GPS' o 'Enlace'
+  final _enlaceOrigenController = TextEditingController();
 
   List<String> get _opcionesEstatusActivas {
-    if (_tipoViajeSeleccionado == 'Reparto') {
-      return ['Preparación', 'En Tránsito', 'Finalizado'];
-    }
+    if (_tipoViajeSeleccionado == 'Reparto') return ['Preparación', 'En Tránsito', 'Finalizado'];
     return ['Preparación', 'En Tránsito', 'En Aduana', 'En Bodega México', 'Finalizado'];
   }
 
@@ -61,7 +59,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
         _estatusSeleccionado = 'Preparación';
       }
     } else {
-      // Si es un viaje nuevo y está en "Principal", cargamos las paradas de inmediato
       if (_tipoViajeSeleccionado == 'Principal') {
         Future.microtask(() => _cargarParadas());
       }
@@ -72,33 +69,67 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   void dispose() {
     _nombreController.dispose();
     _ubicacionController.dispose();
+    _enlaceOrigenController.dispose();
     super.dispose();
   }
 
-  // --- MÉTODO PARA OBTENER PARADAS PENDIENTES ---
   Future<void> _cargarParadas() async {
     setState(() => _cargandoParadas = true);
     try {
       final paradas = await ref.read(recoleccionRepositoryProvider).getParadasPendientes();
-      if (mounted) {
-        setState(() {
-          _paradasDisponibles = paradas;
-          _cargandoParadas = false;
-        });
-      }
+      if (mounted) setState(() { _paradasDisponibles = paradas; _cargandoParadas = false; });
     } catch (e) {
       if (mounted) setState(() => _cargandoParadas = false);
     }
   }
 
+  // --- FUNCIÓN SEGURA PARA LEER GPS ---
+  Future<Position?> _obtenerGPS() async {
+    bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) throw 'Los servicios de GPS están desactivados en el teléfono.';
+
+    LocationPermission permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) throw 'Permisos de ubicación denegados.';
+    }
+    
+    if (permission == LocationPermission.deniedForever) {
+      throw 'Los permisos de ubicación están bloqueados permanentemente en los ajustes.';
+    } 
+
+    return await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+  }
+
   Future<void> _guardarLote() async {
     if (!_formKey.currentState!.validate()) return;
+    
+    // Si eligieron usar Enlace pero está vacío
+    if (_tipoViajeSeleccionado == 'Principal' && _definirOrigen && _metodoOrigen == 'Enlace' && _enlaceOrigenController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Por favor ingresa el enlace del punto de partida.'), backgroundColor: AppColors.error));
+      return;
+    }
 
     setState(() => _isSaving = true);
 
     try {
-      final repository = ref.read(loteRepositoryProvider);
+      double? latOrigen;
+      double? lngOrigen;
+      String? enlaceOrigen;
 
+      // 1. Obtenemos el GPS justo antes de guardar si el usuario lo pidió
+      if (!_esEdicion && _tipoViajeSeleccionado == 'Principal' && _definirOrigen && _metodoOrigen == 'GPS') {
+        final position = await _obtenerGPS();
+        if (position != null) {
+          latOrigen = position.latitude;
+          lngOrigen = position.longitude;
+        }
+      } else if (!_esEdicion && _tipoViajeSeleccionado == 'Principal' && _definirOrigen && _metodoOrigen == 'Enlace') {
+        enlaceOrigen = _enlaceOrigenController.text.trim();
+      }
+
+      // 2. Guardamos el Lote en la BD
+      final repository = ref.read(loteRepositoryProvider);
       final datosLote = {
         'nombre_viaje': _nombreController.text.trim(),
         'tipo_viaje': _tipoViajeSeleccionado,
@@ -107,21 +138,23 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       };
 
       int idLoteFinal;
-
       if (_esEdicion) {
         idLoteFinal = widget.loteAEditar!.id;
         datosLote['id'] = idLoteFinal.toString();
         await repository.actualizarLote(datosLote);
       } else {
-        // ATENCIÓN: Asegúrate de que tu método crearLote retorne un INT (el ID insertado).
         idLoteFinal = await repository.crearLote(datosLote);
       }
 
-      // --- LA MAGIA: LLAMAMOS A MAPBOX SI HAY PARADAS ---
-      if (_tipoViajeSeleccionado == 'Principal' && _paradasSeleccionadas.isNotEmpty) {
+      // 3. Enviamos toda la inteligencia a Mapbox
+      if (_tipoViajeSeleccionado == 'Principal' && _paradasSeleccionadas.isNotEmpty && !_esEdicion) {
         await ref.read(recoleccionRepositoryProvider).optimizarYAsignar(
           idLote: idLoteFinal,
           idsRecolecciones: _paradasSeleccionadas.toList(),
+          origenLat: latOrigen,
+          origenLng: lngOrigen,
+          origenEnlace: enlaceOrigen,
+          rutaCircular: _rutaCircular,
         );
       }
 
@@ -131,17 +164,12 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_esEdicion ? 'Viaje actualizado exitosamente' : 'Viaje creado exitosamente'),
-            backgroundColor: AppColors.success,
-          ),
+          SnackBar(content: Text(_esEdicion ? 'Viaje actualizado exitosamente' : 'Viaje y ruta creados exitosamente'), backgroundColor: AppColors.success),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error),
-        );
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
       }
     } finally {
       if (mounted) setState(() => _isSaving = false);
@@ -183,10 +211,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                   fillColor: Colors.white,
                 ),
                 items: _opcionesTipoViaje.map((tipo) {
-                  return DropdownMenuItem(
-                    value: tipo,
-                    child: Text(tipo == 'Principal' ? 'Viaje Internacional (USA -> MX)' : 'Ruta Local (Reparto en MX)'),
-                  );
+                  return DropdownMenuItem(value: tipo, child: Text(tipo == 'Principal' ? 'Viaje Internacional (USA -> MX)' : 'Ruta Local (Reparto en MX)'));
                 }).toList(),
                 onChanged: _esEdicion ? null : (val) { 
                   setState(() {
@@ -195,10 +220,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                       _estatusSeleccionado = 'Preparación';
                     }
                   });
-                  // Si cambiamos a Principal, cargamos las paradas
-                  if (val == 'Principal' && _paradasDisponibles.isEmpty) {
-                    _cargarParadas();
-                  }
+                  if (val == 'Principal' && _paradasDisponibles.isEmpty) _cargarParadas();
                 },
               ),
               const SizedBox(height: 32),
@@ -223,38 +245,85 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                   filled: true,
                   fillColor: Colors.white,
                 ),
-                items: _opcionesEstatusActivas.map((estatus) {
-                  return DropdownMenuItem(value: estatus, child: Text(estatus));
-                }).toList(),
-                onChanged: (val) {
-                  setState(() {
-                    _estatusSeleccionado = val!;
-                  });
-                },
+                items: _opcionesEstatusActivas.map((estatus) => DropdownMenuItem(value: estatus, child: Text(estatus))).toList(),
+                onChanged: (val) { setState(() => _estatusSeleccionado = val!); },
               ),
 
-              // --- NUEVA SECCIÓN DE OPTIMIZACIÓN DE PARADAS ---
+              // --- SECCIÓN DE OPTIMIZACIÓN LOGÍSTICA ---
               if (_tipoViajeSeleccionado == 'Principal' && !_esEdicion) ...[
                 const SizedBox(height: 32),
                 const Divider(),
                 const SizedBox(height: 16),
+                
+                const Text('Inteligencia Logística', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+                const SizedBox(height: 8),
+
+                // Switch: Definir Origen
+                SwitchListTile(
+                  title: const Text('Definir punto de partida', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Mapbox usará este punto como el inicio de la ruta.', style: TextStyle(fontSize: 12)),
+                  activeColor: AppColors.primary,
+                  value: _definirOrigen,
+                  onChanged: (val) => setState(() => _definirOrigen = val),
+                ),
+
+                // Controles condicionales si activó el origen
+                if (_definirOrigen)
+                  Container(
+                    margin: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(color: Colors.blue.withValues(alpha:0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.shade100)),
+                    child: Column(
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: RadioListTile<String>(
+                                title: const Text('Mi GPS Actual', style: TextStyle(fontSize: 14)),
+                                value: 'GPS',
+                                groupValue: _metodoOrigen,
+                                contentPadding: EdgeInsets.zero,
+                                onChanged: (val) => setState(() => _metodoOrigen = val!),
+                              ),
+                            ),
+                            Expanded(
+                              child: RadioListTile<String>(
+                                title: const Text('Pegar Enlace', style: TextStyle(fontSize: 14)),
+                                value: 'Enlace',
+                                groupValue: _metodoOrigen,
+                                contentPadding: EdgeInsets.zero,
+                                onChanged: (val) => setState(() => _metodoOrigen = val!),
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (_metodoOrigen == 'Enlace')
+                          CustomTextFormField(
+                            label: 'Enlace de Maps o WhatsApp',
+                            icon: Icons.link,
+                            controller: _enlaceOrigenController,
+                          ),
+                      ],
+                    ),
+                  ),
+
+                // Switch: Ruta Circular
+                SwitchListTile(
+                  title: const Text('Ruta Circular (Roundtrip)', style: TextStyle(fontWeight: FontWeight.bold)),
+                  subtitle: const Text('Optimiza la ruta obligando al chofer a terminar donde empezó.', style: TextStyle(fontSize: 12)),
+                  activeColor: AppColors.primary,
+                  value: _rutaCircular,
+                  onChanged: _definirOrigen ? (val) => setState(() => _rutaCircular = val) : null,
+                ),
+
+                const SizedBox(height: 24),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Expanded(
-                      child: Text('Paradas Pendientes (WhatsApp)', 
-                        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                    ),
-                    IconButton(
-                      onPressed: _cargarParadas, 
-                      icon: const Icon(Icons.refresh, color: AppColors.primary),
-                      tooltip: 'Recargar',
-                    ),
+                    const Text('Paradas Pendientes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+                    IconButton(onPressed: _cargarParadas, icon: const Icon(Icons.refresh, color: AppColors.primary)),
                   ],
                 ),
-                const Text('Selecciona las paradas a recolectar. Se ordenarán automáticamente usando Mapbox.', 
-                  style: TextStyle(fontSize: 12, color: Colors.grey)),
-                const SizedBox(height: 16),
                 
                 if (_cargandoParadas) 
                   const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
@@ -265,10 +334,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                   )
                 else
                   Container(
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
                     child: ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
@@ -276,7 +342,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                       separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.shade200),
                       itemBuilder: (context, index) {
                         final p = _paradasDisponibles[index];
-                        // Parseo seguro del ID
                         final pId = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
                         final isSelected = _paradasSeleccionadas.contains(pId);
                         

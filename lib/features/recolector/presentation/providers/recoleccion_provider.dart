@@ -43,7 +43,14 @@ class RecoleccionRepository {
     }
   }
 
-  Future<void> optimizarYAsignar({required int idLote, required List<int> idsRecolecciones}) async {
+  Future<void> optimizarYAsignar({
+    required int idLote, 
+    required List<int> idsRecolecciones,
+    double? origenLat,
+    double? origenLng,
+    String? origenEnlace,
+    bool rutaCircular = false,
+  }) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/optimizar');
     try {
       final response = await http.post(
@@ -52,6 +59,10 @@ class RecoleccionRepository {
         body: jsonEncode({
           'id_lote': idLote,
           'ids_recolecciones': idsRecolecciones,
+          'origen_lat': origenLat,
+          'origen_lng': origenLng,
+          'origen_enlace': origenEnlace,
+          'ruta_circular': rutaCircular,
         }),
       ).timeout(const Duration(seconds: 30)); 
 
@@ -64,7 +75,7 @@ class RecoleccionRepository {
     }
   }
 
-  // --- NUEVO MÉTODO FASE C: LEER LA RUTA OPTIMIZADA DE UN VIAJE ---
+  // --- LEER LA RUTA OPTIMIZADA DE UN VIAJE ---
   Future<List<dynamic>> getParadasPorLote(int idLote) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/por-lote?id_lote=$idLote');
     try {
