@@ -41,18 +41,30 @@ class RutaMapaWidget extends StatelessWidget {
     return poly;
   }
 
-  // --- FUNCIÓN: Extraer la carretera ---
+ // --- FUNCIÓN: Extraer la carretera ---
   List<LatLng> _extraerCaminoReal() {
-    if (paradas.isEmpty || paradas[0]['ruta_polyline'] == null) {
-      // Respaldo: Si no hay geometría, hace líneas rectas
+    if (paradas.isEmpty) return [];
+
+    // Buscamos si ALGUNA de las paradas tiene el trazado de la carretera
+    // (A veces el inicio/fin forzado no lo tienen, por eso buscamos el primero que sí lo tenga)
+    String? polylineCompleta;
+    for (var p in paradas) {
+      if (p['ruta_polyline'] != null && p['ruta_polyline'].toString().isNotEmpty) {
+        polylineCompleta = p['ruta_polyline'].toString();
+        break; // ¡Encontramos el mapa completo! Nos salimos del ciclo.
+      }
+    }
+
+    if (polylineCompleta == null) {
+      // Respaldo: Si de plano Mapbox no mandó geometría, unimos los puntos con líneas rectas
       return paradas.map((p) => LatLng(
         double.tryParse(p['latitud'].toString()) ?? 0.0, 
         double.tryParse(p['longitud'].toString()) ?? 0.0
       )).toList();
     }
 
-    final polyline = paradas[0]['ruta_polyline'] as String;
-    return _decodificarPolyline(polyline);
+    // Dibujamos el trazado curvo perfecto de Mapbox
+    return _decodificarPolyline(polylineCompleta);
   }
 
   List<Marker> _construirMarcadores() {

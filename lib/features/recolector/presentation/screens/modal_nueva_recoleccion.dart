@@ -34,6 +34,7 @@ class _ModalNuevaRecoleccionState extends ConsumerState<ModalNuevaRecoleccion> {
       final exito = await ref.read(crearRecoleccionProvider.notifier).crear(
         _enlaceController.text.trim(),
         _referenciasController.text.trim(),
+        idLote: widget.loteId,
       );
 
       if (exito && mounted) {
