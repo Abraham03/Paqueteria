@@ -6,7 +6,8 @@ import '../../../../core/constants/api_constants.dart';
 
 class RecoleccionRepository {
   
-  Future<void> registrarParada(String enlace, String referencias) async {
+  // 1. Modificado para aceptar el idLote opcional
+  Future<void> registrarParada(String enlace, String referencias, {int? idLote}) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/crear');
     try {
       final response = await http.post(
@@ -15,6 +16,7 @@ class RecoleccionRepository {
         body: jsonEncode({
           'enlace_whatsapp': enlace,
           'direccion_texto': referencias,
+          if (idLote != null) 'id_lote': idLote, // Se envía solo si existe
         }),
       ).timeout(const Duration(seconds: 15));
 
@@ -49,6 +51,10 @@ class RecoleccionRepository {
     double? origenLat,
     double? origenLng,
     String? origenEnlace,
+    // --- NUEVOS PARÁMETROS AGREGADOS ---
+    double? destinoLat,
+    double? destinoLng,
+    String? destinoEnlace,
     bool rutaCircular = false,
   }) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/optimizar');
@@ -62,6 +68,10 @@ class RecoleccionRepository {
           'origen_lat': origenLat,
           'origen_lng': origenLng,
           'origen_enlace': origenEnlace,
+          // Enviamos los nuevos datos al Backend
+          'destino_lat': destinoLat,
+          'destino_lng': destinoLng,
+          'destino_enlace': destinoEnlace,
           'ruta_circular': rutaCircular,
         }),
       ).timeout(const Duration(seconds: 30)); 
@@ -69,6 +79,25 @@ class RecoleccionRepository {
       final decodedData = jsonDecode(response.body);
       if (response.statusCode != 200 || decodedData['status'] == 'error') {
         throw Exception(decodedData['message'] ?? 'Error en la optimización');
+      }
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
+  // 2. NUEVO MÉTODO: Llamar a la re-optimización de un viaje
+  Future<void> reoptimizarLote(int idLote) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/reoptimizar');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'id_lote': idLote}),
+      ).timeout(const Duration(seconds: 30)); 
+
+      final decodedData = jsonDecode(response.body);
+      if (response.statusCode != 200 || decodedData['status'] == 'error') {
+        throw Exception(decodedData['message'] ?? 'Error en la re-optimización');
       }
     } catch (e) {
       throw Exception(e.toString().replaceAll('Exception: ', ''));
@@ -105,10 +134,11 @@ class CrearRecoleccionNotifier extends Notifier<bool> {
   @override
   bool build() => false;
 
-  Future<bool> crear(String enlace, String referencias) async {
+  // 3. Modificado para pasar el idLote
+  Future<bool> crear(String enlace, String referencias, {int? idLote}) async {
     state = true;
     try {
-      await ref.read(recoleccionRepositoryProvider).registrarParada(enlace, referencias);
+      await ref.read(recoleccionRepositoryProvider).registrarParada(enlace, referencias, idLote: idLote);
       state = false;
       return true;
     } catch (e) {

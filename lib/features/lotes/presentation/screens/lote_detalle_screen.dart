@@ -19,6 +19,9 @@ import 'formulario_lote_screen.dart';
 
 import '../../../recolector/presentation/screens/ruta_recoleccion_widget.dart';
 
+// --- NUEVO IMPORT IMPORTANTE PARA PODER REFRESACAR EL MAPA ---
+import '../../../recolector/presentation/providers/recoleccion_provider.dart';
+
 class LoteDetalleScreen extends ConsumerWidget {
   final int loteId;
   const LoteDetalleScreen({super.key, required this.loteId});
@@ -58,7 +61,6 @@ class LoteDetalleScreen extends ConsumerWidget {
     }
   }
 
-  // --- NUEVA FUNCIÓN: Diálogo de Confirmación de Eliminación ---
   Future<void> _confirmarEliminacion(BuildContext context, WidgetRef ref, LoteModel lote) async {
     final confirmar = await showDialog<bool>(
       context: context,
@@ -83,14 +85,12 @@ class LoteDetalleScreen extends ConsumerWidget {
 
     if (confirmar == true) {
       try {
-        // Mostramos un loader mientras procesa
         showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
         
         await ref.read(loteRepositoryProvider).eliminarLote(lote.id);
         
-        Navigator.pop(context); // Cerramos el loader
+        Navigator.pop(context); 
         
-        // Refrescamos la lista principal y salimos de la pantalla
         ref.invalidate(lotesProvider);
         Navigator.pop(context); 
         
@@ -98,7 +98,7 @@ class LoteDetalleScreen extends ConsumerWidget {
           const SnackBar(content: Text('Viaje eliminado y recursos liberados'), backgroundColor: AppColors.success),
         );
       } catch (e) {
-        Navigator.pop(context); // Cerramos el loader en caso de error
+        Navigator.pop(context); 
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error),
         );
@@ -117,12 +117,10 @@ class LoteDetalleScreen extends ConsumerWidget {
         actions: [
           detalleState.maybeWhen(
             data: (lote) {
-              // --- BLINDAJE DE HISTORIAL ---
-              // Si el viaje está Finalizado, no mostramos los botones de Editar ni Eliminar
               if (lote.estatusLote == 'Finalizado') {
                 return const Padding(
                   padding: EdgeInsets.only(right: 16.0),
-                  child: Center(child: Icon(Icons.lock_outline, color: Colors.grey)), // Indicador visual de que está bloqueado
+                  child: Center(child: Icon(Icons.lock_outline, color: Colors.grey)), 
                 );
               }
 
@@ -157,130 +155,145 @@ class LoteDetalleScreen extends ConsumerWidget {
           final paquetes = lote.paquetes ?? [];
           final esRepartoEnTransito = lote.tipoViaje == 'Reparto' && lote.estatusLote == 'En Tránsito';
 
-          return CustomScrollView(
-            slivers: [
-              SliverToBoxAdapter(
-                child: Container(
-                  color: AppColors.surface,
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(lote.nombreViaje, style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 24)),
-                      const SizedBox(height: 8),
-                      _buildInfoRow(
-                        lote.tipoViaje == 'Principal' ? Icons.public : Icons.local_shipping, 
-                        'Tipo de Ruta:', 
-                        lote.tipoViaje == 'Principal' ? 'Internacional' : 'Reparto Local'
-                      ),
-                      const SizedBox(height: 4),
-                      _buildInfoRow(Icons.location_on_outlined, 'Ubicación Actual:', lote.ubicacionActual),
-                      
-                      _buildTimeline(lote),
-                      
-                      const Divider(height: 30),
-                      
-                      if (lote.estatusLote != 'Finalizado')
-                        SizedBox(
-                          width: double.infinity,
-                          height: 50,
-                          child: OutlinedButton.icon(
-                            onPressed: () {
-                              Navigator.push(
-                                context,
-                                MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)),
-                              );
-                            },
-                            icon: const Icon(Icons.update),
-                            label: const Text('ACTUALIZAR RASTREO / ESTATUS'),
-                          ),
-                        )
-                      else 
-                        // Mensaje de solo lectura si está finalizado
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: AppColors.success.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: AppColors.success.withOpacity(0.5))
-                          ),
-                          child: const Row(
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Icon(Icons.task_alt, color: AppColors.success),
-                              SizedBox(width: 8),
-                              Text('Este viaje ha concluido exitosamente', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                        )
-                    ],
-                  ),
-                ),
-              ),
-
-              if (lote.tipoViaje == 'Principal')
+          // --- AQUÍ ESTÁ LA MAGIA: REFRESH INDICATOR ---
+          return RefreshIndicator(
+            color: AppColors.primary,
+            backgroundColor: AppColors.surface,
+            onRefresh: () async {
+              // Forzamos a Riverpod a desechar la info vieja y traerla fresca de la base de datos
+              ref.invalidate(loteDetalleProvider(lote.id));
+              // También invalidamos la lista de paradas para que el mapa se actualice
+              ref.invalidate(paradasPorLoteProvider(lote.id));
+              
+              // Pequeño delay artificial para que la animación de "cargando" se vea fluida
+              await Future.delayed(const Duration(milliseconds: 500));
+            },
+            child: CustomScrollView(
+              // Aseguramos que siempre se pueda deslizar hacia abajo, incluso si no hay muchos elementos
+              physics: const AlwaysScrollableScrollPhysics(), 
+              slivers: [
                 SliverToBoxAdapter(
-                  child: RutaRecoleccionWidget(lote: lote),
-                )
-              else ...[
-                SliverPadding(
-                  padding: const EdgeInsets.all(20),
-                  sliver: SliverToBoxAdapter(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  child: Container(
+                    color: AppColors.surface,
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('Manifiesto de Carga', style: Theme.of(context).textTheme.titleLarge),
-                        Text('${paquetes.length} cajas', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
+                        Text(lote.nombreViaje, style: Theme.of(context).textTheme.displayLarge?.copyWith(fontSize: 24)),
+                        const SizedBox(height: 8),
+                        _buildInfoRow(
+                          lote.tipoViaje == 'Principal' ? Icons.public : Icons.local_shipping, 
+                          'Tipo de Ruta:', 
+                          lote.tipoViaje == 'Principal' ? 'Internacional' : 'Reparto Local'
+                        ),
+                        const SizedBox(height: 4),
+                        _buildInfoRow(Icons.location_on_outlined, 'Ubicación Actual:', lote.ubicacionActual),
+                        
+                        _buildTimeline(lote),
+                        
+                        const Divider(height: 30),
+                        
+                        if (lote.estatusLote != 'Finalizado')
+                          SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: OutlinedButton.icon(
+                              onPressed: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)),
+                                );
+                              },
+                              icon: const Icon(Icons.update),
+                              label: const Text('ACTUALIZAR RASTREO / ESTATUS'),
+                            ),
+                          )
+                        else 
+                          Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: AppColors.success.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: AppColors.success.withOpacity(0.5))
+                            ),
+                            child: const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.task_alt, color: AppColors.success),
+                                SizedBox(width: 8),
+                                Text('Este viaje ha concluido exitosamente', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                          )
                       ],
                     ),
                   ),
                 ),
 
-                if (paquetes.isEmpty)
-                  const SliverToBoxAdapter(
-                    child: Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(40.0),
-                        child: Text('El viaje está vacío. Asigna paquetes para empezar.', 
-                          textAlign: TextAlign.center,
-                          style: TextStyle(color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
+                if (lote.tipoViaje == 'Principal')
+                  SliverToBoxAdapter(
+                    child: RutaRecoleccionWidget(lote: lote),
+                  )
+                else ...[
+                  SliverPadding(
+                    padding: const EdgeInsets.all(20),
+                    sliver: SliverToBoxAdapter(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text('Manifiesto de Carga', style: Theme.of(context).textTheme.titleLarge),
+                          Text('${paquetes.length} cajas', style: const TextStyle(fontWeight: FontWeight.bold, color: AppColors.textSecondary)),
+                        ],
                       ),
                     ),
-                  )
-                else
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final p = paquetes[index];
-                        final bool entregado = p.estatusPaquete == 'Entregado';
-
-                        return PaqueteCardWidget(
-                          paquete: p,
-                          trailing: (esRepartoEnTransito && !entregado)
-                            ? ElevatedButton(
-                                style: ElevatedButton.styleFrom(backgroundColor: AppColors.highlight),
-                                onPressed: () => _entregarPaqueteDirecto(context, ref, p, lote.id),
-                                child: const Text('ENTREGAR', style: TextStyle(color: Colors.white, fontSize: 12)),
-                              )
-                            : null, 
-                          onTap: () {
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (context) => PaqueteDetalleModal(paqueteId: p.id, estatusColor: AppColors.success),
-                            );
-                          },
-                        );
-                      },
-                      childCount: paquetes.length,
-                    ),
                   ),
+
+                  if (paquetes.isEmpty)
+                    const SliverToBoxAdapter(
+                      child: Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(40.0),
+                          child: Text('El viaje está vacío. Asigna paquetes para empezar.', 
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: AppColors.textSecondary, fontStyle: FontStyle.italic)),
+                        ),
+                      ),
+                    )
+                  else
+                    SliverList(
+                      delegate: SliverChildBuilderDelegate(
+                        (context, index) {
+                          final p = paquetes[index];
+                          final bool entregado = p.estatusPaquete == 'Entregado';
+
+                          return PaqueteCardWidget(
+                            paquete: p,
+                            trailing: (esRepartoEnTransito && !entregado)
+                              ? ElevatedButton(
+                                  style: ElevatedButton.styleFrom(backgroundColor: AppColors.highlight),
+                                  onPressed: () => _entregarPaqueteDirecto(context, ref, p, lote.id),
+                                  child: const Text('ENTREGAR', style: TextStyle(color: Colors.white, fontSize: 12)),
+                                )
+                              : null, 
+                            onTap: () {
+                              showModalBottomSheet(
+                                context: context,
+                                isScrollControlled: true,
+                                backgroundColor: Colors.transparent,
+                                builder: (context) => PaqueteDetalleModal(paqueteId: p.id, estatusColor: AppColors.success),
+                              );
+                            },
+                          );
+                        },
+                        childCount: paquetes.length,
+                      ),
+                    ),
+                ],
+                  
+                const SliverToBoxAdapter(child: SizedBox(height: 100)),
               ],
-                
-              const SliverToBoxAdapter(child: SizedBox(height: 100)),
-            ],
+            ),
           );
         },
       ),

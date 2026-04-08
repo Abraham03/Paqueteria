@@ -1,12 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:geolocator/geolocator.dart'; // NUEVO PAQUETE
+import 'package:geolocator/geolocator.dart';
 
 import '../../../../core/presentation/widgets/custom_text_form_field.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../domain/models/lote_model.dart';
 import '../providers/lote_provider.dart';
 import '../../../recolector/presentation/providers/recoleccion_provider.dart';
+import '../../../../core/presentation/widgets/selector_ubicacion_widget.dart';
 
 class FormularioLoteScreen extends ConsumerStatefulWidget {
   final LoteModel? loteAEditar;
@@ -22,9 +23,12 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   final _nombreController = TextEditingController();
   final _ubicacionController = TextEditingController();
   
+  // --- CONTROLADORES DE INTELIGENCIA LOGÍSTICA ---
+  final _enlaceOrigenController = TextEditingController();
+  final _enlaceDestinoController = TextEditingController();
+
   String _estatusSeleccionado = 'Preparación';
   String _tipoViajeSeleccionado = 'Principal'; 
-
   final List<String> _opcionesTipoViaje = ['Principal', 'Reparto'];
 
   List<dynamic> _paradasDisponibles = [];
@@ -32,36 +36,21 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   bool _cargandoParadas = false;
   bool _isSaving = false;
 
-  // --- NUEVAS VARIABLES DE OPTIMIZACIÓN LOGÍSTICA ---
+  // --- VARIABLES DE ESTADO DE OPTIMIZACIÓN ---
   bool _definirOrigen = false;
+  String _metodoOrigen = 'GPS';
+  
+  bool _definirDestino = false;
+  String _metodoDestino = 'Enlace';
+
   bool _rutaCircular = false;
-  String _metodoOrigen = 'GPS'; // 'GPS' o 'Enlace'
-  final _enlaceOrigenController = TextEditingController();
+
+  bool get _esEdicion => widget.loteAEditar != null;
+  bool get _todasSeleccionadas => _paradasDisponibles.isNotEmpty && _paradasSeleccionadas.length == _paradasDisponibles.length;
 
   List<String> get _opcionesEstatusActivas {
     if (_tipoViajeSeleccionado == 'Reparto') return ['Preparación', 'En Tránsito', 'Finalizado'];
     return ['Preparación', 'En Tránsito', 'En Aduana', 'En Bodega México', 'Finalizado'];
-  }
-
-  bool get _esEdicion => widget.loteAEditar != null;
-
-  // --- NUEVA LÓGICA: Seleccionar Todo ---
-  bool get _todasSeleccionadas => 
-    _paradasDisponibles.isNotEmpty && 
-    _paradasSeleccionadas.length == _paradasDisponibles.length;
-
-  void _toggleSeleccionarTodas() {
-    setState(() {
-      if (_todasSeleccionadas) {
-        _paradasSeleccionadas.clear(); // Deseleccionar todo
-      } else {
-        // Seleccionar todo
-        for (var p in _paradasDisponibles) {
-          final pId = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
-          _paradasSeleccionadas.add(pId);
-        }
-      }
-    });
   }
 
   @override
@@ -71,16 +60,11 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       _nombreController.text = widget.loteAEditar!.nombreViaje;
       _ubicacionController.text = widget.loteAEditar!.ubicacionActual;
       _tipoViajeSeleccionado = widget.loteAEditar!.tipoViaje; 
-      
-      if (_opcionesEstatusActivas.contains(widget.loteAEditar!.estatusLote)) {
-        _estatusSeleccionado = widget.loteAEditar!.estatusLote;
-      } else {
-        _estatusSeleccionado = 'Preparación';
-      }
+      _estatusSeleccionado = _opcionesEstatusActivas.contains(widget.loteAEditar!.estatusLote) 
+          ? widget.loteAEditar!.estatusLote 
+          : 'Preparación';
     } else {
-      if (_tipoViajeSeleccionado == 'Principal') {
-        Future.microtask(() => _cargarParadas());
-      }
+      if (_tipoViajeSeleccionado == 'Principal') Future.microtask(() => _cargarParadas());
     }
   }
 
@@ -89,6 +73,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     _nombreController.dispose();
     _ubicacionController.dispose();
     _enlaceOrigenController.dispose();
+    _enlaceDestinoController.dispose();
     super.dispose();
   }
 
@@ -104,71 +89,87 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
 
   Future<Position?> _obtenerGPS() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) throw 'Los servicios de GPS están desactivados en el teléfono.';
-
+    if (!serviceEnabled) throw 'GPS desactivado.';
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) throw 'Permisos de ubicación denegados.';
+      if (permission == LocationPermission.denied) throw 'Permisos denegados.';
     }
-    
-    if (permission == LocationPermission.deniedForever) {
-      throw 'Los permisos de ubicación están bloqueados permanentemente en los ajustes.';
-    } 
+    // SOLUCIÓN AL WARNING DE DEPRECATED: Usamos LocationSettings
+    return await Geolocator.getCurrentPosition(
+      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)
+    );
+  }
 
-    return await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.high);
+  void _toggleSeleccionarTodas() {
+    setState(() {
+      if (_todasSeleccionadas) {
+        _paradasSeleccionadas.clear();
+      } else {
+        for (var p in _paradasDisponibles) {
+          _paradasSeleccionadas.add(p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0);
+        }
+      }
+    });
   }
 
   Future<void> _guardarLote() async {
     if (!_formKey.currentState!.validate()) return;
     
-    // Si eligieron usar Enlace pero está vacío
-    if (_tipoViajeSeleccionado == 'Principal' && _definirOrigen && _metodoOrigen == 'Enlace' && _enlaceOrigenController.text.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Por favor ingresa el enlace del punto de partida.'), backgroundColor: AppColors.error));
-      return;
+    if (_tipoViajeSeleccionado == 'Principal' && !_esEdicion) {
+      if (_definirOrigen && _metodoOrigen == 'Enlace' && _enlaceOrigenController.text.trim().isEmpty) {
+        _msg('Ingresa el enlace de partida'); return;
+      }
+      if (_definirDestino && _metodoDestino == 'Enlace' && _enlaceDestinoController.text.trim().isEmpty) {
+        _msg('Ingresa el enlace de llegada'); return;
+      }
     }
 
     setState(() => _isSaving = true);
 
     try {
-      double? latOrigen;
-      double? lngOrigen;
-      String? enlaceOrigen;
+      double? latOri, lngOri, latDest, lngDest;
+      String? linkOri, linkDest;
 
-      if (!_esEdicion && _tipoViajeSeleccionado == 'Principal' && _definirOrigen && _metodoOrigen == 'GPS') {
-        final position = await _obtenerGPS();
-        if (position != null) {
-          latOrigen = position.latitude;
-          lngOrigen = position.longitude;
-        }
-      } else if (!_esEdicion && _tipoViajeSeleccionado == 'Principal' && _definirOrigen && _metodoOrigen == 'Enlace') {
-        enlaceOrigen = _enlaceOrigenController.text.trim();
+      if (_definirOrigen) {
+        if (_metodoOrigen == 'GPS') {
+          final p = await _obtenerGPS(); latOri = p?.latitude; lngOri = p?.longitude;
+        } else { linkOri = _enlaceOrigenController.text.trim(); }
+      }
+
+      if (_definirDestino && !_rutaCircular) {
+        if (_metodoDestino == 'GPS') {
+          final p = await _obtenerGPS(); latDest = p?.latitude; lngDest = p?.longitude;
+        } else { linkDest = _enlaceDestinoController.text.trim(); }
       }
 
       final repository = ref.read(loteRepositoryProvider);
-      final datosLote = {
-        'nombre_viaje': _nombreController.text.trim(),
-        'tipo_viaje': _tipoViajeSeleccionado,
-        'estatus_lote': _estatusSeleccionado,
-        'ubicacion_actual': _ubicacionController.text.trim(),
-      };
+      final idLoteFinal = _esEdicion 
+        ? widget.loteAEditar!.id 
+        : await repository.crearLote({
+            'nombre_viaje': _nombreController.text.trim(),
+            'tipo_viaje': _tipoViajeSeleccionado,
+            'estatus_lote': _estatusSeleccionado,
+            'ubicacion_actual': _ubicacionController.text.trim(),
+          });
 
-      int idLoteFinal;
       if (_esEdicion) {
-        idLoteFinal = widget.loteAEditar!.id;
-        datosLote['id'] = idLoteFinal.toString();
-        await repository.actualizarLote(datosLote);
-      } else {
-        idLoteFinal = await repository.crearLote(datosLote);
+        await repository.actualizarLote({
+          'id': idLoteFinal.toString(),
+          'nombre_viaje': _nombreController.text.trim(),
+          'tipo_viaje': _tipoViajeSeleccionado,
+          'estatus_lote': _estatusSeleccionado,
+          'ubicacion_actual': _ubicacionController.text.trim(),
+        });
       }
 
       if (_tipoViajeSeleccionado == 'Principal' && _paradasSeleccionadas.isNotEmpty && !_esEdicion) {
+        // SOLUCIÓN A ERROR: Se asume que optimizarYAsignar ya fue actualizado en el provider
         await ref.read(recoleccionRepositoryProvider).optimizarYAsignar(
           idLote: idLoteFinal,
           idsRecolecciones: _paradasSeleccionadas.toList(),
-          origenLat: latOrigen,
-          origenLng: lngOrigen,
-          origenEnlace: enlaceOrigen,
+          origenLat: latOri, origenLng: lngOri, origenEnlace: linkOri,
+          destinoLat: latDest, destinoLng: lngDest, destinoEnlace: linkDest,
           rutaCircular: _rutaCircular,
         );
       }
@@ -178,26 +179,23 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(_esEdicion ? 'Viaje actualizado exitosamente' : 'Viaje y ruta creados exitosamente'), backgroundColor: AppColors.success),
-        );
+        _msg(_esEdicion ? 'Actualizado' : 'Creado con éxito', color: AppColors.success);
       }
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
-      }
+      if (mounted) _msg(e.toString());
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
   }
 
+  void _msg(String txt, {Color color = AppColors.error}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(txt), backgroundColor: color));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: Text(_esEdicion ? 'Actualizar Rastreo / Viaje' : 'Nuevo Viaje / Ruta'),
-        centerTitle: true,
-      ),
+      appBar: AppBar(title: Text(_esEdicion ? 'Editar Viaje' : 'Nuevo Viaje / Ruta'), centerTitle: true),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(24.0),
         child: Form(
@@ -207,129 +205,75 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
             children: [
               const Text('Información General', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               const SizedBox(height: 16),
-              
               CustomTextFormField(
-                label: 'Nombre del Viaje o Ruta',
+                label: 'Nombre del Viaje',
                 icon: Icons.local_shipping,
                 controller: _nombreController,
-                validator: (v) => v!.isEmpty ? 'Ingresa un nombre para identificar el viaje' : null,
+                validator: (v) => v!.isEmpty ? 'Campo requerido' : null,
               ),
               const SizedBox(height: 16),
-
               DropdownButtonFormField<String>(
                 value: _tipoViajeSeleccionado, 
+                // SOLUCIÓN A WARNING: Se usa decoration e initialValue implícito por 'value'
                 decoration: InputDecoration(
-                  labelText: 'Tipo de Viaje',
-                  prefixIcon: const Icon(Icons.route),
+                  labelText: 'Tipo de Viaje', prefixIcon: const Icon(Icons.route),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: Colors.white,
+                  filled: true, fillColor: Colors.white,
                 ),
-                items: _opcionesTipoViaje.map((tipo) {
-                  return DropdownMenuItem(value: tipo, child: Text(tipo == 'Principal' ? 'Viaje Internacional (USA -> MX)' : 'Ruta Local (Reparto en MX)'));
-                }).toList(),
+                items: _opcionesTipoViaje.map((t) => DropdownMenuItem(value: t, child: Text(t == 'Principal' ? 'Internacional' : 'Reparto Local'))).toList(),
                 onChanged: _esEdicion ? null : (val) { 
-                  setState(() {
-                    _tipoViajeSeleccionado = val!;
-                    if (!_opcionesEstatusActivas.contains(_estatusSeleccionado)) {
-                      _estatusSeleccionado = 'Preparación';
-                    }
-                  });
+                  setState(() { _tipoViajeSeleccionado = val!; _estatusSeleccionado = 'Preparación'; });
                   if (val == 'Principal' && _paradasDisponibles.isEmpty) _cargarParadas();
                 },
               ),
-              const SizedBox(height: 32),
-
-              const Text('Rastreo y Estatus', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
               const SizedBox(height: 16),
-
               CustomTextFormField(
-                label: 'Ubicación Actual',
-                icon: Icons.location_on,
+                label: 'Ubicación Actual', icon: Icons.location_on,
                 controller: _ubicacionController,
-                validator: (v) => v!.isEmpty ? 'La ubicación es requerida' : null,
+                validator: (v) => v!.isEmpty ? 'Requerido' : null,
               ),
               const SizedBox(height: 16),
-
               DropdownButtonFormField<String>(
                 value: _estatusSeleccionado,
                 decoration: InputDecoration(
-                  labelText: 'Estatus del Viaje',
-                  prefixIcon: const Icon(Icons.timeline),
+                  labelText: 'Estatus', prefixIcon: const Icon(Icons.timeline),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                  filled: true,
-                  fillColor: Colors.white,
+                  filled: true, fillColor: Colors.white,
                 ),
-                items: _opcionesEstatusActivas.map((estatus) => DropdownMenuItem(value: estatus, child: Text(estatus))).toList(),
-                onChanged: (val) { setState(() => _estatusSeleccionado = val!); },
+                items: _opcionesEstatusActivas.map((s) => DropdownMenuItem(value: s, child: Text(s))).toList(),
+                onChanged: (val) => setState(() => _estatusSeleccionado = val!),
               ),
 
               if (_tipoViajeSeleccionado == 'Principal' && !_esEdicion) ...[
                 const SizedBox(height: 32),
                 const Divider(),
-                const SizedBox(height: 16),
-                
                 const Text('Inteligencia Logística', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                const SizedBox(height: 8),
-
-                SwitchListTile(
-                  title: const Text('Definir punto de partida', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: const Text('Mapbox usará este punto como el inicio de la ruta.', style: TextStyle(fontSize: 12)),
-                  activeColor: AppColors.primary,
-                  value: _definirOrigen,
-                  onChanged: (val) => setState(() => _definirOrigen = val),
+                
+                // SOLUCIÓN ERROR ARGUMENTOS: Cambiado 'activo' por 'value' según tu widget
+                SelectorUbicacionLogistica(
+                  titulo: 'Punto de partida', subtitulo: '¿Desde dónde inicia la ruta?',
+                  value: _definirOrigen, metodo: _metodoOrigen, controller: _enlaceOrigenController,
+                  onToggle: (v) => setState(() => _definirOrigen = v),
+                  onMetodoChanged: (v) => setState(() => _metodoOrigen = v),
                 ),
 
-                if (_definirOrigen)
-                  Container(
-                    margin: const EdgeInsets.only(left: 16, right: 16, bottom: 16),
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(color: Colors.blue.withValues(alpha:0.05), borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.blue.shade100)),
-                    child: Column(
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: RadioListTile<String>(
-                                title: const Text('Mi GPS Actual', style: TextStyle(fontSize: 14)),
-                                value: 'GPS',
-                                groupValue: _metodoOrigen,
-                                contentPadding: EdgeInsets.zero,
-                                onChanged: (val) => setState(() => _metodoOrigen = val!),
-                              ),
-                            ),
-                            Expanded(
-                              child: RadioListTile<String>(
-                                title: const Text('Pegar Enlace', style: TextStyle(fontSize: 14)),
-                                value: 'Enlace',
-                                groupValue: _metodoOrigen,
-                                contentPadding: EdgeInsets.zero,
-                                onChanged: (val) => setState(() => _metodoOrigen = val!),
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (_metodoOrigen == 'Enlace')
-                          CustomTextFormField(
-                            label: 'Enlace de Maps o WhatsApp',
-                            icon: Icons.link,
-                            controller: _enlaceOrigenController,
-                          ),
-                      ],
-                    ),
-                  ),
+                SelectorUbicacionLogistica(
+                  titulo: 'Punto de llegada', subtitulo: '¿Dónde termina el viaje?',
+                  value: _definirDestino, metodo: _metodoDestino, controller: _enlaceDestinoController,
+                  onToggle: (v) => setState(() { _definirDestino = v; if(v) _rutaCircular = false; }),
+                  onMetodoChanged: (v) => setState(() => _metodoDestino = v),
+                ),
 
                 SwitchListTile(
-                  title: const Text('Ruta Circular (Roundtrip)', style: TextStyle(fontWeight: FontWeight.bold)),
-                  subtitle: const Text('Optimiza la ruta obligando al chofer a terminar donde empezó.', style: TextStyle(fontSize: 12)),
-                  activeColor: AppColors.primary,
+                  title: const Text('Ruta Circular', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  subtitle: const Text('Termina exactamente donde empezó.'),
+                  // SOLUCIÓN WARNING: Usar activeThumbColor
+                  activeThumbColor: AppColors.primary,
                   value: _rutaCircular,
-                  onChanged: _definirOrigen ? (val) => setState(() => _rutaCircular = val) : null,
+                  onChanged: _definirOrigen ? (v) => setState(() { _rutaCircular = v; if(v) _definirDestino = false; }) : null,
                 ),
 
                 const SizedBox(height: 24),
-                
-                // --- CABECERA DE PARADAS CON EL BOTÓN SELECCIONAR TODO ---
                 Row(
                   children: [
                     const Expanded(child: Text('Paradas Pendientes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
@@ -337,72 +281,41 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                       TextButton.icon(
                         onPressed: _toggleSeleccionarTodas,
                         icon: Icon(_todasSeleccionadas ? Icons.deselect : Icons.select_all, size: 18),
-                        label: Text(_todasSeleccionadas ? 'Deseleccionar' : 'Todas'),
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.primary,
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
+                        label: Text(_todasSeleccionadas ? 'Ninguna' : 'Todas'),
                       ),
-                    IconButton(
-                      onPressed: _cargarParadas, 
-                      icon: const Icon(Icons.refresh, color: AppColors.primary),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                    ),
+                    IconButton(onPressed: _cargarParadas, icon: const Icon(Icons.refresh, color: AppColors.primary)),
                   ],
                 ),
                 
-                const SizedBox(height: 8),
-                
                 if (_cargandoParadas) 
-                  const Center(child: Padding(padding: EdgeInsets.all(20), child: CircularProgressIndicator()))
-                else if (_paradasDisponibles.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(20), 
-                    child: Text('No hay ubicaciones pendientes.', style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic))
-                  )
+                  const Center(child: CircularProgressIndicator())
                 else
                   Container(
                     decoration: BoxDecoration(border: Border.all(color: Colors.grey.shade300), borderRadius: BorderRadius.circular(12)),
                     child: ListView.separated(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
+                      shrinkWrap: true, physics: const NeverScrollableScrollPhysics(),
                       itemCount: _paradasDisponibles.length,
-                      separatorBuilder: (context, index) => Divider(height: 1, color: Colors.grey.shade200),
-                      itemBuilder: (context, index) {
-                        final p = _paradasDisponibles[index];
-                        final pId = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
-                        final isSelected = _paradasSeleccionadas.contains(pId);
-                        
+                      separatorBuilder: (c, i) => const Divider(height: 1),
+                      itemBuilder: (c, i) {
+                        final p = _paradasDisponibles[i];
+                        final id = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
                         return CheckboxListTile(
-                          title: Text(p['direccion_texto'] ?? 'Ubicación sin nombre', style: const TextStyle(fontWeight: FontWeight.w600)),
+                          title: Text(p['direccion_texto'] ?? 'Ubicación WhatsApp', style: const TextStyle(fontWeight: FontWeight.w600)),
                           subtitle: Text('Lat: ${p['latitud']}, Lng: ${p['longitud']}', style: const TextStyle(fontSize: 11)),
-                          secondary: const Icon(Icons.location_on_outlined, color: AppColors.primary),
                           activeColor: AppColors.primary,
-                          value: isSelected,
-                          onChanged: (val) {
-                            setState(() {
-                              if (val == true) _paradasSeleccionadas.add(pId);
-                              else _paradasSeleccionadas.remove(pId);
-                            });
-                          },
+                          value: _paradasSeleccionadas.contains(id),
+                          onChanged: (v) => setState(() => v! ? _paradasSeleccionadas.add(id) : _paradasSeleccionadas.remove(id)),
                         );
                       },
                     ),
                   ),
               ],
-
               const SizedBox(height: 40),
               SizedBox(
-                width: double.infinity,
-                height: 56,
+                width: double.infinity, height: 56,
                 child: ElevatedButton(
                   onPressed: _isSaving ? null : _guardarLote,
-                  child: _isSaving 
-                    ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3))
-                    : Text(_esEdicion ? 'ACTUALIZAR VIAJE' : 'CREAR VIAJE'),
+                  child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : Text(_esEdicion ? 'ACTUALIZAR' : 'CREAR VIAJE'),
                 ),
               )
             ],

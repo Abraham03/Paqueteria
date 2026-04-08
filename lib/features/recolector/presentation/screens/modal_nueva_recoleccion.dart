@@ -6,7 +6,8 @@ import '../../../../../core/presentation/widgets/custom_text_form_field.dart';
 import '../providers/recoleccion_provider.dart';
 
 class ModalNuevaRecoleccion extends ConsumerStatefulWidget {
-  const ModalNuevaRecoleccion({super.key});
+  final int? loteId;
+  const ModalNuevaRecoleccion({super.key, this.loteId});
 
   @override
   ConsumerState<ModalNuevaRecoleccion> createState() => _ModalNuevaRecoleccionState();
