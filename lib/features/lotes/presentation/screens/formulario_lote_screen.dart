@@ -23,7 +23,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   final _nombreController = TextEditingController();
   final _ubicacionController = TextEditingController();
   
-  // --- CONTROLADORES DE INTELIGENCIA LOGÍSTICA ---
   final _enlaceOrigenController = TextEditingController();
   final _enlaceDestinoController = TextEditingController();
 
@@ -36,7 +35,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   bool _cargandoParadas = false;
   bool _isSaving = false;
 
-  // --- VARIABLES DE ESTADO DE OPTIMIZACIÓN ---
   bool _definirOrigen = false;
   String _metodoOrigen = 'GPS';
   
@@ -95,7 +93,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) throw 'Permisos denegados.';
     }
-    // SOLUCIÓN AL WARNING DE DEPRECATED: Usamos LocationSettings
     return await Geolocator.getCurrentPosition(
       locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)
     );
@@ -103,11 +100,18 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
 
   void _toggleSeleccionarTodas() {
     setState(() {
-      if (_todasSeleccionadas) {
+      if (_todasSeleccionadas || _paradasSeleccionadas.isNotEmpty) {
         _paradasSeleccionadas.clear();
       } else {
+        // --- ACTUALIZADO: BLOQUEO AL BOTÓN DE SELECCIONAR TODAS ---
+        int agregadas = 0;
         for (var p in _paradasDisponibles) {
+          if (agregadas >= 10) {
+             _msg('Se seleccionaron las primeras 10 (Límite Máximo)', color: Colors.orange);
+             break;
+          }
           _paradasSeleccionadas.add(p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0);
+          agregadas++;
         }
       }
     });
@@ -164,7 +168,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       }
 
       if (_tipoViajeSeleccionado == 'Principal' && _paradasSeleccionadas.isNotEmpty && !_esEdicion) {
-        // SOLUCIÓN A ERROR: Se asume que optimizarYAsignar ya fue actualizado en el provider
         await ref.read(recoleccionRepositoryProvider).optimizarYAsignar(
           idLote: idLoteFinal,
           idsRecolecciones: _paradasSeleccionadas.toList(),
@@ -214,7 +217,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
                 value: _tipoViajeSeleccionado, 
-                // SOLUCIÓN A WARNING: Se usa decoration e initialValue implícito por 'value'
                 decoration: InputDecoration(
                   labelText: 'Tipo de Viaje', prefixIcon: const Icon(Icons.route),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
@@ -249,7 +251,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                 const Divider(),
                 const Text('Inteligencia Logística', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
                 
-                // SOLUCIÓN ERROR ARGUMENTOS: Cambiado 'activo' por 'value' según tu widget
                 SelectorUbicacionLogistica(
                   titulo: 'Punto de partida', subtitulo: '¿Desde dónde inicia la ruta?',
                   value: _definirOrigen, metodo: _metodoOrigen, controller: _enlaceOrigenController,
@@ -267,7 +268,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                 SwitchListTile(
                   title: const Text('Ruta Circular', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
                   subtitle: const Text('Termina exactamente donde empezó.'),
-                  // SOLUCIÓN WARNING: Usar activeThumbColor
                   activeThumbColor: AppColors.primary,
                   value: _rutaCircular,
                   onChanged: _definirOrigen ? (v) => setState(() { _rutaCircular = v; if(v) _definirDestino = false; }) : null,
@@ -304,7 +304,20 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                           subtitle: Text('Lat: ${p['latitud']}, Lng: ${p['longitud']}', style: const TextStyle(fontSize: 11)),
                           activeColor: AppColors.primary,
                           value: _paradasSeleccionadas.contains(id),
-                          onChanged: (v) => setState(() => v! ? _paradasSeleccionadas.add(id) : _paradasSeleccionadas.remove(id)),
+                          onChanged: (v) {
+                            setState(() {
+                              if (v!) {
+                                // --- ACTUALIZADO: BLOQUEO DEL LÍMITE DE 10 ---
+                                if (_paradasSeleccionadas.length >= 10) {
+                                  _msg('Límite de 10 paradas por viaje alcanzado.', color: AppColors.error);
+                                  return;
+                                }
+                                _paradasSeleccionadas.add(id);
+                              } else {
+                                _paradasSeleccionadas.remove(id);
+                              }
+                            });
+                          },
                         );
                       },
                     ),

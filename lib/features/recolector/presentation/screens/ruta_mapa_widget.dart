@@ -48,47 +48,80 @@ class RutaMapaWidget extends StatelessWidget {
   List<LatLng> _extraerCaminoReal() {
     if (paradas.isEmpty) return [];
 
-    String? polylineCompleta;
-    for (var p in paradas) {
+    List<LatLng> caminoCompleto = [];
+    Set<String> polylinesVistas = {};
+
+    // Ordenamos las paradas por orden_visita para pegar los pedazos de carretera en el orden correcto
+    final paradasOrdenadas = List.from(paradas);
+    paradasOrdenadas.sort((a, b) => (a['orden_visita'] ?? 999).compareTo(b['orden_visita'] ?? 999));
+
+    for (var p in paradasOrdenadas) {
       final polyStr = p['ruta_polyline']?.toString() ?? '';
-      if (polyStr.length > 20) { 
-        polylineCompleta = polyStr;
-        break;
+      
+      // Si la parada tiene una línea azul y no la hemos decodificado antes...
+      if (polyStr.length > 20 && !polylinesVistas.contains(polyStr)) {
+        polylinesVistas.add(polyStr);
+        // Pegamos este pedazo de carretera al camino total
+        caminoCompleto.addAll(_decodificarPolyline(polyStr));
       }
     }
 
-    if (polylineCompleta == null) {
-      return paradas.map((p) => LatLng(
+    if (caminoCompleto.isEmpty) {
+      // Fallback: Si Mapbox falló por completo, unimos los puntos con líneas rectas
+      final fallback = paradas.where((p) => p['id'] != 'END_FORZADO').toList();
+      fallback.sort((a, b) => (a['orden_visita'] ?? 999).compareTo(b['orden_visita'] ?? 999));
+      
+      return fallback.map((p) => LatLng(
         double.tryParse(p['latitud'].toString()) ?? 0.0, 
         double.tryParse(p['longitud'].toString()) ?? 0.0
       )).toList();
     }
 
-    return _decodificarPolyline(polylineCompleta);
+    return caminoCompleto;
   }
 
-  // --- ACTUALIZADO: RECIBE EL CAMINO PARA PONER LA TIENDA Y BANDERA ---
-  List<Marker> _construirMarcadores(List<LatLng> caminoReal) {
+  // --- ACTUALIZADO: Dibuja exactamente leyendo el ID (START/END) ---
+  List<Marker> _construirMarcadores() {
     int contador = 1;
     List<Marker> marcadoresList = [];
 
-    // 1. Dibujar los paquetes
     for (var p in paradas) {
-      // Ignorar fantasmas
-      if (p['id'] == 'START' || p['id'] == 'END' || p['id'] == 'END_FORZADO') continue;
-
+      final id = p['id'].toString();
       final lat = double.tryParse(p['latitud'].toString()) ?? 0.0;
       final lng = double.tryParse(p['longitud'].toString()) ?? 0.0;
       
-      // La lógica original que tenías para decidir los colores (pero omitiendo a start y end que dibujaremos aparte)
+      // 1. Si es el INICIO, dibujamos la Tienda
+      if (id == 'START') {
+        marcadoresList.add(Marker(
+          point: LatLng(lat, lng),
+          width: 45, height: 45,
+          child: Container(
+            decoration: BoxDecoration(color: Colors.black87, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)),
+            child: const Icon(Icons.home, color: Colors.white, size: 20),
+          ),
+        ));
+        continue; // Saltamos al siguiente punto
+      }
+
+      // 2. Si es el DESTINO, dibujamos la Bandera
+      if (id == 'END' || id == 'END_FORZADO') {
+        marcadoresList.add(Marker(
+          point: LatLng(lat, lng),
+          width: 45, height: 45,
+          child: Container(
+            decoration: BoxDecoration(color: Colors.deepPurple, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)),
+            child: const Icon(Icons.flag, color: Colors.white, size: 20),
+          ),
+        ));
+        continue; // Saltamos al siguiente punto
+      }
+
+      // 3. Lógica original para los PAQUETES
       final recolectada = p['estatus'] == 'Recolectada';
       final bool esDesordenada = p['orden_visita'] == 999;
 
-      Widget iconoInterno;
-      Color colorFondo;
-
-      colorFondo = recolectada ? AppColors.success : (esDesordenada ? Colors.amber : AppColors.primary);
-      iconoInterno = recolectada
+      Color colorFondo = recolectada ? AppColors.success : (esDesordenada ? Colors.amber : AppColors.primary);
+      Widget iconoInterno = recolectada
           ? const Icon(Icons.check, color: Colors.white, size: 18)
           : Text(
               esDesordenada ? "!" : "${contador++}", 
@@ -120,33 +153,6 @@ class RutaMapaWidget extends StatelessWidget {
           ),
         ),
       );
-    }
-    
-    // 2. Dibujar Origen y Destino en los extremos del mapa
-    if (caminoReal.length > 1) {
-       // Marcador de Inicio (Tienda)
-       marcadoresList.add(
-         Marker(
-           point: caminoReal.first, // El primer punto exacto de la carretera
-           width: 45, height: 45,
-           child: Container(
-             decoration: BoxDecoration(color: Colors.black87, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)),
-             child: const Icon(Icons.storefront, color: Colors.white, size: 20),
-           ),
-         )
-       );
-
-       // Marcador de Destino (Bandera)
-       marcadoresList.add(
-         Marker(
-           point: caminoReal.last, // El último punto exacto de la carretera
-           width: 45, height: 45,
-           child: Container(
-             decoration: BoxDecoration(color: Colors.deepPurple, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)),
-             child: const Icon(Icons.flag, color: Colors.white, size: 20),
-           ),
-         )
-       );
     }
 
     return marcadoresList;
@@ -208,8 +214,8 @@ class RutaMapaWidget extends StatelessWidget {
               ],
             ),
             MarkerLayer(
-              // PASAMOS EL CAMINO REAL AQUÍ
-              markers: _construirMarcadores(caminoReal), 
+              // Ahora construimos los marcadores sin necesidad de mandarle el caminoReal
+              markers: _construirMarcadores(), 
             ),
           ],
         ),

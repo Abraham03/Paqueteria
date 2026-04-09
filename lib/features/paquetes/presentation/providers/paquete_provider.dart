@@ -42,3 +42,9 @@ class PaquetesNotifier extends AsyncNotifier<List<PaqueteModel>> {
     final repository = ref.read(paqueteRepositoryProvider);
     return await repository.getPaqueteById(id);
   });
+
+  // Provider para traer las coordenadas de la ruta de reparto para el mapa
+final rutaRepartoPorLoteProvider = FutureProvider.family<List<dynamic>, int>((ref, idLote) async {
+  final repository = ref.read(paqueteRepositoryProvider);
+  return await repository.getRutaRepartoPorLote(idLote);
+});

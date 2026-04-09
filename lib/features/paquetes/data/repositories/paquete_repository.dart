@@ -140,4 +140,45 @@ class PaqueteRepository {
     }
   }
 
+
+  // =========================================================================
+  // --- FUNCIONES PARA EL MAPA DE REPARTO ---
+  // =========================================================================
+
+  Future<List<dynamic>> getRutaRepartoPorLote(int idLote) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/paquetes/reparto/por-lote?id_lote=$idLote');
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 15));
+      final decodedData = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && decodedData['status'] == 'success') {
+        // --- ACTUALIZADO: BLINDAJE CONTRA NULL ---
+        final data = decodedData['data'];
+        return data != null ? List<dynamic>.from(data) : [];
+      } else {
+        throw Exception(decodedData['message'] ?? 'Error al obtener la ruta de reparto');
+      }
+    } catch (e) {
+      throw Exception('Error al conectar: $e');
+    }
+  }
+
+  Future<void> reoptimizarLoteReparto(int idLote) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/paquetes/reparto/reoptimizar');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'id_lote': idLote}),
+      ).timeout(const Duration(seconds: 20));
+
+      final decodedData = jsonDecode(response.body);
+      if (response.statusCode != 200 || decodedData['status'] != 'success') {
+        throw Exception(decodedData['message'] ?? 'Error al re-optimizar el viaje');
+      }
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
 }

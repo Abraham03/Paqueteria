@@ -19,6 +19,7 @@ import 'formulario_lote_screen.dart';
 
 import '../../../recolector/presentation/screens/ruta_recoleccion_widget.dart';
 import '../../../recolector/presentation/providers/recoleccion_provider.dart';
+import '../../../paquetes/presentation/widgets/ruta_reparto_widget.dart'; 
 
 class LoteDetalleScreen extends ConsumerStatefulWidget {
   final int loteId;
@@ -35,7 +36,6 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    // Escuchamos los cambios de pestaña para reconstruir el botón flotante
     _tabController.addListener(() {
       setState(() {});
     });
@@ -114,9 +114,12 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
           indicatorColor: AppColors.primary,
           labelColor: AppColors.primary,
           unselectedLabelColor: Colors.grey,
-          tabs: const [
-            Tab(icon: Icon(Icons.map_outlined), text: 'RECOLECCIÓN'),
-            Tab(icon: Icon(Icons.inventory_2_outlined), text: 'PAQUETES'),
+          tabs: [
+            Tab(
+              icon: const Icon(Icons.map_outlined), 
+              text: detalleState.value?.tipoViaje == 'Principal' ? 'RECOLECCIÓN' : 'RUTA LOCAL'
+            ),
+            const Tab(icon: Icon(Icons.inventory_2_outlined), text: 'PAQUETES'),
           ],
         ),
         actions: [
@@ -159,12 +162,12 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
             onRefresh: () async {
               ref.invalidate(loteDetalleProvider(lote.id));
               ref.invalidate(paradasPorLoteProvider(lote.id));
+              ref.invalidate(rutaRepartoPorLoteProvider(lote.id)); 
               await Future.delayed(const Duration(milliseconds: 500));
             },
             child: TabBarView(
               controller: _tabController,
               children: [
-                // --- PESTAÑA 1: RECOLECCIÓN ---
                 CustomScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
@@ -187,13 +190,12 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
                     if (lote.tipoViaje == 'Principal')
                       SliverToBoxAdapter(child: RutaRecoleccionWidget(lote: lote))
                     else
-                      const SliverToBoxAdapter(child: SizedBox(height: 40, child: Center(child: Text("Ruta local no usa mapa")))),
+                      SliverToBoxAdapter(child: RutaRepartoWidget(lote: lote)),
                     
                     const SliverToBoxAdapter(child: SizedBox(height: 100)),
                   ],
                 ),
 
-                // --- PESTAÑA 2: PAQUETES ---
                 CustomScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
                   slivers: [
@@ -223,7 +225,11 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
                               Container(
                                 width: double.infinity,
                                 padding: const EdgeInsets.all(12),
-                                decoration: BoxDecoration(color: AppColors.success.withOpacity(0.1), borderRadius: BorderRadius.circular(8), border: Border.all(color: AppColors.success.withOpacity(0.5))),
+                                decoration: BoxDecoration(
+                                  color: AppColors.success.withValues(alpha: 0.1), 
+                                  borderRadius: BorderRadius.circular(8), 
+                                  border: Border.all(color: AppColors.success.withValues(alpha: 0.5))
+                                ),
                                 child: const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
@@ -372,7 +378,7 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
     if (lote.tipoViaje == 'Principal') {
       return FloatingActionButton.extended(
         backgroundColor: AppColors.primary,
-        foregroundColor: AppColors.surface,
+        foregroundColor: Colors.white,
         onPressed: () {
           Navigator.push(context, MaterialPageRoute(builder: (context) => FormularioPaqueteScreen(loteAsociado: lote)))
             .then((_) {
@@ -384,12 +390,17 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
         label: const Text('NUEVO PAQUETE'),
       );
     } else {
+      // --- ACTUALIZADO: SE ELIMINÓ EL LÍMITE DE 10 PARA CARGAR LA CAMIONETA ---
       if (lote.estatusLote == 'Preparación') {
         return FloatingActionButton.extended(
           backgroundColor: AppColors.primary,
-          foregroundColor: AppColors.surface,
+          foregroundColor: Colors.white,
           onPressed: () {
-            showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => ModalCargaMasiva(lote: lote));
+            showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => ModalCargaMasiva(lote: lote))
+             .then((_) {
+                ref.invalidate(loteDetalleProvider(lote.id));
+                ref.invalidate(rutaRepartoPorLoteProvider(lote.id));
+             });
           },
           icon: const Icon(Icons.airport_shuttle),
           label: const Text('CARGAR CAMIONETA'),
