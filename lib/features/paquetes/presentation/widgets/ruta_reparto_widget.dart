@@ -6,7 +6,6 @@ import '../../../../core/services/map_utils.dart';
 import '../../../lotes/domain/models/lote_model.dart';
 import '../providers/paquete_provider.dart';
 
-// REUTILIZAMOS TU WIDGET DEL MAPA EXISTENTE
 import '../../../recolector/presentation/screens/ruta_mapa_widget.dart';
 
 class RutaRepartoWidget extends ConsumerWidget {
@@ -50,7 +49,6 @@ class RutaRepartoWidget extends ConsumerWidget {
         
         final paradasFiltradas = paradas.where((p) => p['id'] != 'START' && p['id'] != 'END' && p['id'] != 'END_FORZADO').toList();
 
-        // --- LÓGICA PARA OCULTAR EL BOTÓN SI HAY MÁS DE 10 DESTINOS ---
         final Set<String> coordenadasUnicas = {};
         for(var p in paradasFiltradas) {
           if(p['latitud'] != null && p['longitud'] != null) {
@@ -87,7 +85,7 @@ class RutaRepartoWidget extends ConsumerWidget {
                           tooltip: 'Ruta manual (>10 destinos)',
                           onPressed: () {
                             ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Optimización automática deshabilitada por exceder los 10 destinos. Navega manualmente usando los botones azules.'))
+                              const SnackBar(content: Text('Optimización automática deshabilitada por exceder los 10 destinos. Navega manualmente.'))
                             );
                           },
                         ),
@@ -113,17 +111,39 @@ class RutaRepartoWidget extends ConsumerWidget {
                   final parada = paradasFiltradas[index];
                   final bool entregado = parada['estatus_paquete'] == 'Entregado';
                   final bool esDesordenada = parada['orden_visita'] == 999;
+                  
+                  // Extraemos el número real que asignó Mapbox
+                  final int ordenReal = parada['orden_visita'] ?? 999;
 
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    
+                    // =========================================================
+                    // --- AQUÍ ESTÁ EL CÍRCULO BLANCO CON NÚMERO ---
+                    // =========================================================
                     leading: CircleAvatar(
-                      backgroundColor: entregado ? AppColors.success : (esDesordenada ? Colors.amber : AppColors.surface),
-                      child: entregado 
-                        ? const Icon(Icons.check, color: Colors.white)
-                        : (esDesordenada 
-                            ? const Icon(Icons.warning_amber, color: Colors.black87, size: 20) 
-                            : Text('${index + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                      radius: 20,
+                      backgroundColor: entregado 
+                          ? AppColors.success 
+                          : (esDesordenada ? Colors.amber : Colors.white), // Círculo blanco si no está entregado
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: entregado ? Colors.transparent : (esDesordenada ? Colors.transparent : AppColors.primary), 
+                            width: 2 // Grosor del borde de color
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: entregado 
+                          ? const Icon(Icons.check, color: Colors.white, size: 20)
+                          : (esDesordenada 
+                              ? const Icon(Icons.warning_amber, color: Colors.black87, size: 20) 
+                              : Text('$ordenReal', style: const TextStyle(color: AppColors.primary, fontWeight: FontWeight.bold, fontSize: 16))),
+                      ),
                     ),
+                    // =========================================================
+
                     title: Text(parada['destinatario_nombre'] ?? 'Sin Nombre', 
                       style: TextStyle(
                         fontWeight: FontWeight.bold, 
@@ -134,7 +154,12 @@ class RutaRepartoWidget extends ConsumerWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    subtitle: Text(esDesordenada ? (puedeOptimizar ? 'Falta optimizar' : 'Navegación Manual') : 'Entrega programada', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    subtitle: Text(
+                      esDesordenada 
+                        ? (puedeOptimizar ? 'Falta optimizar' : 'Navegación Manual') 
+                        : 'Dirección confirmada', 
+                      style: const TextStyle(fontSize: 12, color: Colors.grey)
+                    ),
                     
                     trailing: entregado 
                       ? const Text('Entregado', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 12))

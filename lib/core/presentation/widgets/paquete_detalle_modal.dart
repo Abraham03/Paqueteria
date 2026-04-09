@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../features/paquetes/domain/models/paquete_model.dart';
@@ -9,8 +10,8 @@ import '../../../features/paquetes/presentation/providers/paquete_provider.dart'
 import '../../../features/evidencias/presentation/providers/evidencia_provider.dart';
 import '../../../features/paquetes/presentation/screens/formulario_paquete_screen.dart';
 
-import 'package:url_launcher/url_launcher.dart';
 import '../widgets/galeria_evidencias_modal.dart';
+import '../../../features/paquetes/presentation/widgets/modal_fijar_ubicacion.dart';
 
 class PaqueteDetalleModal extends ConsumerWidget {
   final int paqueteId;
@@ -20,7 +21,6 @@ class PaqueteDetalleModal extends ConsumerWidget {
 
   // --- FUNCIÓN PARA LLAMADAS ---
   Future<void> _hacerLlamada(String telefono, BuildContext context) async {
-    // Limpiamos el texto para dejar solo números (y el +, si lo tiene)
     final numeroLimpio = telefono.replaceAll(RegExp(r'[^0-9+]'), '');
     final Uri url = Uri.parse('tel:$numeroLimpio');
     
@@ -97,7 +97,6 @@ class PaqueteDetalleModal extends ConsumerWidget {
                     _buildTarjetaInfo([
                       _buildFilaDato(context, 'Nombre', paquete.remitenteNombre),
                       if (paquete.remitenteTelefono != null && paquete.remitenteTelefono!.isNotEmpty)
-                        // LE DECIMOS QUE ESTA FILA ES UN TELÉFONO
                         _buildFilaDato(context, 'Teléfono', paquete.remitenteTelefono!, esTelefono: true),
                       if (paquete.remitenteOrigen != null && paquete.remitenteOrigen!.isNotEmpty)
                         _buildFilaDato(context, 'Ubicación USA', paquete.remitenteOrigen!),
@@ -108,7 +107,6 @@ class PaqueteDetalleModal extends ConsumerWidget {
                     _buildTarjetaInfo([
                       _buildFilaDato(context, 'Nombre', paquete.destinatarioNombre),
                       if (paquete.destinatarioContacto != null && paquete.destinatarioContacto!.isNotEmpty)
-                        // LE DECIMOS QUE ESTA FILA ES UN TELÉFONO
                         _buildFilaDato(context, 'Teléfono', paquete.destinatarioContacto!, esTelefono: true),
                       if (paquete.destinatarioOrigen != null && paquete.destinatarioOrigen!.isNotEmpty)
                         _buildFilaDato(context, 'Dirección (MX)', paquete.destinatarioOrigen!),
@@ -125,6 +123,71 @@ class PaqueteDetalleModal extends ConsumerWidget {
                         _buildFilaDato(context, 'Camioneta Asignada', 'Ruta ID: ${paquete.idLoteReparto}'),
                     ]),
                     const SizedBox(height: 16),
+
+                    // =================================================================
+                    // --- NUEVA SECCIÓN: FIJAR UBICACIÓN ---
+                    // =================================================================
+                    if (paquete.latitud == null)
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blueGrey.shade700, 
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12)
+                          ),
+                          onPressed: () {
+                            showModalBottomSheet(
+                              context: context,
+                              isScrollControlled: true,
+                              backgroundColor: Colors.transparent,
+                              builder: (context) => ModalFijarUbicacion(idPaquete: paquete.id),
+                            ).then((_) {
+                              ref.invalidate(paqueteDetalleProvider(paqueteId));
+                            });
+                          },
+                          icon: const Icon(Icons.add_location_alt),
+                          label: const Text('FIJAR UBICACIÓN MAPA', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ),
+                      )
+                    else
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.success.withValues(alpha: 0.1), 
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppColors.success.withValues(alpha: 0.5))
+                        ),
+                        child: Column(
+                          children: [
+                            const Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(Icons.check_circle, color: AppColors.success),
+                                SizedBox(width: 8),
+                                Text('Ubicación confirmada para Mapbox', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold)),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton.icon(
+                              onPressed: () {
+                                showModalBottomSheet(
+                                  context: context,
+                                  isScrollControlled: true,
+                                  backgroundColor: Colors.transparent,
+                                  builder: (context) => ModalFijarUbicacion(idPaquete: paquete.id),
+                                ).then((_) {
+                                  ref.invalidate(paqueteDetalleProvider(paquete.id));
+                                });
+                              },
+                              icon: const Icon(Icons.edit_location_alt, size: 16, color: AppColors.primary),
+                              label: const Text('Cambiar Ubicación', style: TextStyle(color: AppColors.primary)),
+                            )
+                          ],
+                        ),
+                      ),
+                    const SizedBox(height: 24),
+                    // =================================================================
                     
                     _buildSeccionTitulo(context, 'Contenido de la Caja', Icons.inventory_2_outlined),
                     if (items.isEmpty)
@@ -227,7 +290,6 @@ class PaqueteDetalleModal extends ConsumerWidget {
     );
   }
 
-  // --- MODIFICADO: AHORA SOPORTA TELÉFONOS CLICKABLES ---
   Widget _buildFilaDato(BuildContext context, String etiqueta, String valor, {bool esTelefono = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8.0),
@@ -257,7 +319,6 @@ class PaqueteDetalleModal extends ConsumerWidget {
     );
   }
 
-  // --- LÓGICA DE NEGOCIO ---
   void _mostrarOpcionesDeEvidencia(BuildContext context, WidgetRef ref, PaqueteModel paquete) {
     showModalBottomSheet(
       context: context,

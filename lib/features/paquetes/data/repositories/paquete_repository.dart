@@ -163,6 +163,24 @@ class PaqueteRepository {
     }
   }
 
+  Future<void> fijarUbicacionPaquete(int idPaquete, String enlace) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/paquetes/ubicacion/enlace');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'id_paquete': idPaquete, 'enlace_ubicacion': enlace}),
+      ).timeout(const Duration(seconds: 15));
+
+      final decodedData = jsonDecode(response.body);
+      if (response.statusCode != 200 || decodedData['status'] != 'success') {
+        throw Exception(decodedData['message'] ?? 'Error al fijar ubicación');
+      }
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
   Future<void> reoptimizarLoteReparto(int idLote) async {
     final url = Uri.parse('${ApiConstants.baseUrl}/paquetes/reparto/reoptimizar');
     try {
