@@ -199,4 +199,28 @@ class PaqueteRepository {
     }
   }
 
+
+  // --- AGREGAR PARADA LIBRE ---
+  Future<void> crearParadaLibre(int idLote, String enlace, String descripcion) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/paquetes/reparto/parada-libre');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({
+          'id_lote': idLote,
+          'enlace_ubicacion': enlace,
+          'descripcion': descripcion
+        }),
+      ).timeout(const Duration(seconds: 15));
+
+      final decodedData = jsonDecode(response.body);
+      if (response.statusCode != 200 || decodedData['status'] != 'success') {
+        throw Exception(decodedData['message'] ?? 'Error al agregar parada libre');
+      }
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
 }

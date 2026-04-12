@@ -15,30 +15,6 @@ class RutaRecoleccionWidget extends ConsumerWidget {
 
   const RutaRecoleccionWidget({super.key, required this.lote});
 
-  Future<void> _ejecutarOptimizacion(BuildContext context, WidgetRef ref) async {
-    try {
-      showDialog(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const Center(child: CircularProgressIndicator()),
-      );
-
-      await ref.read(recoleccionRepositoryProvider).reoptimizarLote(lote.id);
-      
-      ref.invalidate(paradasPorLoteProvider(lote.id)); 
-      Navigator.pop(context); 
-      
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Ruta re-ordenada exitosamente'), backgroundColor: AppColors.success)
-      );
-    } catch (e) {
-      Navigator.pop(context); 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $e'), backgroundColor: AppColors.error)
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final rutaAsync = ref.watch(paradasPorLoteProvider(lote.id));
@@ -68,30 +44,19 @@ class RutaRecoleccionWidget extends ConsumerWidget {
                   ),
                   
                   if (!isFinalizado)
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        if (paradas.isNotEmpty)
-                          IconButton(
-                            icon: const Icon(Icons.auto_fix_high, color: Colors.amber),
-                            tooltip: 'Optimizar Ruta',
-                            onPressed: () => _ejecutarOptimizacion(context, ref),
-                          ),
-                        IconButton(
-                          icon: const Icon(Icons.add_location_alt, color: AppColors.primary),
-                          tooltip: 'Agregar Parada',
-                          onPressed: () {
-                            showModalBottomSheet(
-                              context: context,
-                              isScrollControlled: true,
-                              backgroundColor: Colors.transparent,
-                              builder: (context) => ModalNuevaRecoleccion(loteId: lote.id),
-                            ).then((_) {
-                              ref.invalidate(paradasPorLoteProvider(lote.id));
-                            });
-                          },
-                        ),
-                      ],
+                    IconButton(
+                      icon: const Icon(Icons.add_location_alt, color: AppColors.primary),
+                      tooltip: 'Agregar Parada',
+                      onPressed: () {
+                        showModalBottomSheet(
+                          context: context,
+                          isScrollControlled: true,
+                          backgroundColor: Colors.transparent,
+                          builder: (context) => ModalNuevaRecoleccion(loteId: lote.id),
+                        ).then((_) {
+                          ref.invalidate(paradasPorLoteProvider(lote.id));
+                        });
+                      },
                     ),
                 ],
               ),
@@ -114,18 +79,31 @@ class RutaRecoleccionWidget extends ConsumerWidget {
                 itemBuilder: (context, index) {
                   final parada = paradasFiltradas[index];
                   final recolectada = parada['estatus'] == 'Recolectada';
-                  final bool esDesordenada = parada['orden_visita'] == 999;
 
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    
+                    // =========================================================
+                    // --- CÍRCULO LIMPIO SIN ALERTAS AMARILLAS ---
+                    // =========================================================
                     leading: CircleAvatar(
-                      backgroundColor: recolectada ? AppColors.success : (esDesordenada ? Colors.amber : AppColors.surface),
-                      child: recolectada 
-                        ? const Icon(Icons.check, color: Colors.white)
-                        : (esDesordenada 
-                            ? const Icon(Icons.warning_amber, color: Colors.black87, size: 20) 
-                            : Text('${index + 1}', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold))),
+                      radius: 20,
+                      backgroundColor: recolectada ? AppColors.success : Colors.white,
+                      child: Container(
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          border: Border.all(
+                            color: recolectada ? Colors.transparent : AppColors.primary, 
+                            width: 2 
+                          ),
+                        ),
+                        alignment: Alignment.center,
+                        child: recolectada 
+                          ? const Icon(Icons.check, color: Colors.white, size: 20)
+                          : Text('${index + 1}', style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16)),
+                      ),
                     ),
+                    
                     title: Text(parada['direccion_texto'] ?? 'Ubicación de WhatsApp', 
                       style: TextStyle(
                         fontWeight: FontWeight.bold, 
@@ -136,13 +114,12 @@ class RutaRecoleccionWidget extends ConsumerWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                     ),
-                    subtitle: Text(esDesordenada ? 'Falta optimizar' : 'Punto de recolección', style: const TextStyle(fontSize: 12, color: Colors.grey)),
+                    subtitle: const Text('Punto de recolección', style: TextStyle(fontSize: 12, color: Colors.grey)),
                     
-                    // --- CORRECCIÓN DE RENDERFLEX AQUI ---
                     trailing: recolectada 
                       ? const Text('Completada', style: TextStyle(color: AppColors.success, fontWeight: FontWeight.bold, fontSize: 12))
                       : Row(
-                          mainAxisSize: MainAxisSize.min, // Esto asegura que la fila no intente ocupar todo el ancho
+                          mainAxisSize: MainAxisSize.min, 
                           children: [
                             IconButton(
                               icon: const Icon(Icons.navigation, color: Colors.blueAccent, size: 24),
@@ -160,7 +137,7 @@ class RutaRecoleccionWidget extends ConsumerWidget {
                               },
                             ),
                             const SizedBox(width: 8),
-                            Flexible( // El Flexible evita que el botón empuje otros elementos fuera de la pantalla
+                            Flexible( 
                               child: ElevatedButton(
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: Colors.blueAccent,

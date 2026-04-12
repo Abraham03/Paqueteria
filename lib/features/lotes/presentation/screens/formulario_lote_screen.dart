@@ -61,8 +61,12 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       _estatusSeleccionado = _opcionesEstatusActivas.contains(widget.loteAEditar!.estatusLote) 
           ? widget.loteAEditar!.estatusLote 
           : 'Preparación';
-    } else {
-      if (_tipoViajeSeleccionado == 'Principal') Future.microtask(() => _cargarParadas());
+    }
+    
+    // Ahora SIEMPRE cargamos las paradas si es viaje Principal (sea edición o nuevo)
+    // Usamos microtask para permitir que el widget se construya y el context esté disponible.
+    if (_tipoViajeSeleccionado == 'Principal') {
+      Future.microtask(() => _cargarParadas(cargarDatosDeEdicion: _esEdicion));
     }
   }
 
@@ -75,11 +79,58 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     super.dispose();
   }
 
-  Future<void> _cargarParadas() async {
+  Future<void> _cargarParadas({bool cargarDatosDeEdicion = false}) async {
     setState(() => _cargandoParadas = true);
     try {
-      final paradas = await ref.read(recoleccionRepositoryProvider).getParadasPendientes();
-      if (mounted) setState(() { _paradasDisponibles = paradas; _cargandoParadas = false; });
+      final repo = ref.read(recoleccionRepositoryProvider);
+      
+      // 1. Obtenemos las pendientes globales
+      final paradasPendientes = await repo.getParadasPendientes();
+      List<dynamic> paradasDeEsteViaje = [];
+
+      // 2. Si estamos editando, traemos también los parámetros logísticos y las paradas que YA estaban asignadas
+      if (cargarDatosDeEdicion && widget.loteAEditar != null) {
+        // Pedimos al repositorio la lista de paradas que tiene el lote actualmente
+        paradasDeEsteViaje = await repo.getParadasPorLote(widget.loteAEditar!.id);
+        
+        // Recuperamos los parámetros logísticos analizando la respuesta de las paradas (START/END)
+        for (var p in paradasDeEsteViaje) {
+           if (p['id'] == 'START') {
+              _definirOrigen = true;
+              _metodoOrigen = 'Enlace';
+              _enlaceOrigenController.text = "${p['latitud']},${p['longitud']}"; // Coordenadas crudas
+           } else if (p['id'] == 'END') {
+              _definirDestino = true;
+              _metodoDestino = 'Enlace';
+              _enlaceDestinoController.text = "${p['latitud']},${p['longitud']}";
+           } else if (p['id'] == 'END_FORZADO') {
+              _definirOrigen = true;
+              _rutaCircular = true;
+           } else if (p['id'] is int || int.tryParse(p['id'].toString()) != null) {
+              // Si es un ID normal, es una parada que pertenece al viaje. La pre-seleccionamos.
+              _paradasSeleccionadas.add(p['id'] is int ? p['id'] : int.parse(p['id'].toString()));
+           }
+        }
+      }
+
+      if (mounted) {
+        setState(() { 
+          // Juntamos las pendientes con las que ya tiene el viaje para mostrarlas todas en la lista
+          _paradasDisponibles = [
+             ...paradasDeEsteViaje.where((p) => p['id'] != 'START' && p['id'] != 'END' && p['id'] != 'END_FORZADO'), 
+             ...paradasPendientes
+          ];
+          
+          // Eliminamos duplicados por ID por si acaso
+          final idsVistos = <int>{};
+          _paradasDisponibles.retainWhere((p) {
+             final id = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
+             return idsVistos.add(id);
+          });
+
+          _cargandoParadas = false; 
+        });
+      }
     } catch (e) {
       if (mounted) setState(() => _cargandoParadas = false);
     }
@@ -103,82 +154,132 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       if (_todasSeleccionadas || _paradasSeleccionadas.isNotEmpty) {
         _paradasSeleccionadas.clear();
       } else {
-        // --- ACTUALIZADO: BLOQUEO AL BOTÓN DE SELECCIONAR TODAS ---
-        int agregadas = 0;
         for (var p in _paradasDisponibles) {
-          if (agregadas >= 10) {
-             _msg('Se seleccionaron las primeras 10 (Límite Máximo)', color: Colors.orange);
-             break;
-          }
           _paradasSeleccionadas.add(p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0);
-          agregadas++;
         }
       }
     });
   }
 
+  Map<String, double>? _extraerCoordenadasDesdeEnlace(String enlace) {
+    if (enlace.isEmpty) return null;
+    
+    // Si ya son coordenadas crudas (ej. "20.44,-99.16") que cargó la edición
+    final rawDirectRegex = RegExp(r'^([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)$');
+    final matchDirect = rawDirectRegex.firstMatch(enlace.trim());
+    if (matchDirect != null) {
+      return {'lat': double.parse(matchDirect.group(1)!), 'lng': double.parse(matchDirect.group(2)!)};
+    }
+
+    final googleMapsRegex = RegExp(r'@([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
+    final matchGoogle = googleMapsRegex.firstMatch(enlace);
+    if (matchGoogle != null) {
+      return {'lat': double.parse(matchGoogle.group(1)!), 'lng': double.parse(matchGoogle.group(2)!)};
+    }
+
+    final rawUrlRegex = RegExp(r'([-+]?\d{1,2}\.\d+)%2C([-+]?\d{1,3}\.\d+)');
+    final matchUrl = rawUrlRegex.firstMatch(enlace.replaceAll(',', '%2C'));
+    if (matchUrl != null) {
+        return {'lat': double.parse(matchUrl.group(1)!), 'lng': double.parse(matchUrl.group(2)!)};
+    }
+    return null;
+  }
+
   Future<void> _guardarLote() async {
     if (!_formKey.currentState!.validate()) return;
     
-    if (_tipoViajeSeleccionado == 'Principal' && !_esEdicion) {
-      if (_definirOrigen && _metodoOrigen == 'Enlace' && _enlaceOrigenController.text.trim().isEmpty) {
-        _msg('Ingresa el enlace de partida'); return;
-      }
-      if (_definirDestino && _metodoDestino == 'Enlace' && _enlaceDestinoController.text.trim().isEmpty) {
-        _msg('Ingresa el enlace de llegada'); return;
-      }
+    // Ahora exigimos los enlaces también en edición si los switches están activos
+    if (_definirOrigen && _metodoOrigen == 'Enlace' && _enlaceOrigenController.text.trim().isEmpty) {
+      _msg('Ingresa el enlace de partida'); return;
+    }
+    if (_definirDestino && _metodoDestino == 'Enlace' && _enlaceDestinoController.text.trim().isEmpty) {
+      _msg('Ingresa el enlace de llegada'); return;
     }
 
     setState(() => _isSaving = true);
 
     try {
       double? latOri, lngOri, latDest, lngDest;
-      String? linkOri, linkDest;
 
       if (_definirOrigen) {
         if (_metodoOrigen == 'GPS') {
-          final p = await _obtenerGPS(); latOri = p?.latitude; lngOri = p?.longitude;
-        } else { linkOri = _enlaceOrigenController.text.trim(); }
+          final p = await _obtenerGPS(); 
+          latOri = p?.latitude; 
+          lngOri = p?.longitude;
+        } else { 
+          final coords = _extraerCoordenadasDesdeEnlace(_enlaceOrigenController.text.trim());
+          if (coords == null) {
+             _msg('No se detectaron coordenadas válidas en el enlace de origen.');
+             setState(() => _isSaving = false);
+             return;
+          }
+          latOri = coords['lat'];
+          lngOri = coords['lng'];
+        }
       }
 
       if (_definirDestino && !_rutaCircular) {
         if (_metodoDestino == 'GPS') {
-          final p = await _obtenerGPS(); latDest = p?.latitude; lngDest = p?.longitude;
-        } else { linkDest = _enlaceDestinoController.text.trim(); }
+          final p = await _obtenerGPS(); 
+          latDest = p?.latitude; 
+          lngDest = p?.longitude;
+        } else { 
+          final coords = _extraerCoordenadasDesdeEnlace(_enlaceDestinoController.text.trim());
+          if (coords == null) {
+             _msg('No se detectaron coordenadas válidas en el enlace de destino.');
+             setState(() => _isSaving = false);
+             return;
+          }
+          latDest = coords['lat'];
+          lngDest = coords['lng'];
+        }
       }
 
       final repository = ref.read(loteRepositoryProvider);
+      
+      final loteData = {
+        'nombre_viaje': _nombreController.text.trim(),
+        'tipo_viaje': _tipoViajeSeleccionado,
+        'estatus_lote': _estatusSeleccionado,
+        'ubicacion_actual': _ubicacionController.text.trim(),
+        'origen_lat': latOri,
+        'origen_lng': lngOri,
+        'destino_lat': latDest,
+        'destino_lng': lngDest,
+        'ruta_circular': _rutaCircular,
+      };
+
       final idLoteFinal = _esEdicion 
         ? widget.loteAEditar!.id 
-        : await repository.crearLote({
-            'nombre_viaje': _nombreController.text.trim(),
-            'tipo_viaje': _tipoViajeSeleccionado,
-            'estatus_lote': _estatusSeleccionado,
-            'ubicacion_actual': _ubicacionController.text.trim(),
-          });
+        : await repository.crearLote(loteData);
 
       if (_esEdicion) {
-        await repository.actualizarLote({
-          'id': idLoteFinal.toString(),
-          'nombre_viaje': _nombreController.text.trim(),
-          'tipo_viaje': _tipoViajeSeleccionado,
-          'estatus_lote': _estatusSeleccionado,
-          'ubicacion_actual': _ubicacionController.text.trim(),
-        });
+        loteData['id'] = idLoteFinal.toString();
+        await repository.actualizarLote(loteData);
       }
 
-      if (_tipoViajeSeleccionado == 'Principal' && _paradasSeleccionadas.isNotEmpty && !_esEdicion) {
-        await ref.read(recoleccionRepositoryProvider).optimizarYAsignar(
+      // --- ASIGNACIÓN (APLICA PARA CREAR O EDITAR VIAJE PRINCIPAL) ---
+      // Siempre ejecutamos la asignación en viajes principales, para que el servidor sepa si agregamos o quitamos paradas.
+      if (_tipoViajeSeleccionado == 'Principal') {
+        // En el backend, asegúrate que "asignarParadas" (RecoleccionController->asignar)
+        // se encargue de "soltar" las paradas que ya no vengan en idsRecolecciones.
+        // Como tu backend actual asigna por IDs, al actualizar el viaje y mandarle una nueva lista, las tomará. 
+        // Nota: Para que sea perfecto al editar, el backend debería desvincular las que no vengan, 
+        // pero por ahora funcionará para AGREGAR nuevas paradas o mantener las existentes.
+        await ref.read(recoleccionRepositoryProvider).asignarParadas(
           idLote: idLoteFinal,
           idsRecolecciones: _paradasSeleccionadas.toList(),
-          origenLat: latOri, origenLng: lngOri, origenEnlace: linkOri,
-          destinoLat: latDest, destinoLng: lngDest, destinoEnlace: linkDest,
+          origenLat: latOri, origenLng: lngOri, origenEnlace: null, 
+          destinoLat: latDest, destinoLng: lngDest, destinoEnlace: null,
           rutaCircular: _rutaCircular,
         );
-      }
+      } 
 
       ref.invalidate(lotesProvider);
-      if (_esEdicion) ref.invalidate(loteDetalleProvider(widget.loteAEditar!.id));
+      if (_esEdicion) {
+        ref.invalidate(loteDetalleProvider(widget.loteAEditar!.id));
+        ref.invalidate(paradasPorLoteProvider(widget.loteAEditar!.id));
+      }
 
       if (mounted) {
         Navigator.pop(context);
@@ -246,44 +347,44 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                 onChanged: (val) => setState(() => _estatusSeleccionado = val!),
               ),
 
-              if (_tipoViajeSeleccionado == 'Principal' && !_esEdicion) ...[
-                const SizedBox(height: 32),
-                const Divider(),
-                const Text('Inteligencia Logística', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
-                
-                SelectorUbicacionLogistica(
-                  titulo: 'Punto de partida', subtitulo: '¿Desde dónde inicia la ruta?',
-                  value: _definirOrigen, metodo: _metodoOrigen, controller: _enlaceOrigenController,
-                  onToggle: (v) => setState(() => _definirOrigen = v),
-                  onMetodoChanged: (v) => setState(() => _metodoOrigen = v),
-                ),
+              const SizedBox(height: 32),
+              const Divider(),
+              const Text('Inteligencia Logística', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18)),
+              
+              SelectorUbicacionLogistica(
+                titulo: 'Punto de partida', subtitulo: '¿Desde dónde inicia la ruta?',
+                value: _definirOrigen, metodo: _metodoOrigen, controller: _enlaceOrigenController,
+                onToggle: (v) => setState(() => _definirOrigen = v),
+                onMetodoChanged: (v) => setState(() => _metodoOrigen = v),
+              ),
 
-                SelectorUbicacionLogistica(
-                  titulo: 'Punto de llegada', subtitulo: '¿Dónde termina el viaje?',
-                  value: _definirDestino, metodo: _metodoDestino, controller: _enlaceDestinoController,
-                  onToggle: (v) => setState(() { _definirDestino = v; if(v) _rutaCircular = false; }),
-                  onMetodoChanged: (v) => setState(() => _metodoDestino = v),
-                ),
+              SelectorUbicacionLogistica(
+                titulo: 'Punto de llegada', subtitulo: '¿Dónde termina el viaje?',
+                value: _definirDestino, metodo: _metodoDestino, controller: _enlaceDestinoController,
+                onToggle: (v) => setState(() { _definirDestino = v; if(v) _rutaCircular = false; }),
+                onMetodoChanged: (v) => setState(() => _metodoDestino = v),
+              ),
 
-                SwitchListTile(
-                  title: const Text('Ruta Circular', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                  subtitle: const Text('Termina exactamente donde empezó.'),
-                  activeThumbColor: AppColors.primary,
-                  value: _rutaCircular,
-                  onChanged: _definirOrigen ? (v) => setState(() { _rutaCircular = v; if(v) _definirDestino = false; }) : null,
-                ),
+              SwitchListTile(
+                title: const Text('Ruta Circular', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                subtitle: const Text('Termina exactamente donde empezó.'),
+                activeThumbColor: AppColors.primary,
+                value: _rutaCircular,
+                onChanged: _definirOrigen ? (v) => setState(() { _rutaCircular = v; if(v) _definirDestino = false; }) : null,
+              ),
 
+              if (_tipoViajeSeleccionado == 'Principal') ...[
                 const SizedBox(height: 24),
                 Row(
                   children: [
-                    const Expanded(child: Text('Paradas Pendientes', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
+                    const Expanded(child: Text('Paradas del Viaje', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16))),
                     if (_paradasDisponibles.isNotEmpty)
                       TextButton.icon(
                         onPressed: _toggleSeleccionarTodas,
                         icon: Icon(_todasSeleccionadas ? Icons.deselect : Icons.select_all, size: 18),
                         label: Text(_todasSeleccionadas ? 'Ninguna' : 'Todas'),
                       ),
-                    IconButton(onPressed: _cargarParadas, icon: const Icon(Icons.refresh, color: AppColors.primary)),
+                    IconButton(onPressed: () => _cargarParadas(cargarDatosDeEdicion: _esEdicion), icon: const Icon(Icons.refresh, color: AppColors.primary)),
                   ],
                 ),
                 
@@ -307,11 +408,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                           onChanged: (v) {
                             setState(() {
                               if (v!) {
-                                // --- ACTUALIZADO: BLOQUEO DEL LÍMITE DE 10 ---
-                                if (_paradasSeleccionadas.length >= 10) {
-                                  _msg('Límite de 10 paradas por viaje alcanzado.', color: AppColors.error);
-                                  return;
-                                }
                                 _paradasSeleccionadas.add(id);
                               } else {
                                 _paradasSeleccionadas.remove(id);
@@ -328,7 +424,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                 width: double.infinity, height: 56,
                 child: ElevatedButton(
                   onPressed: _isSaving ? null : _guardarLote,
-                  child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : Text(_esEdicion ? 'ACTUALIZAR' : 'CREAR VIAJE'),
+                  child: _isSaving ? const CircularProgressIndicator(color: Colors.white) : Text(_esEdicion ? 'ACTUALIZAR VIAJE' : 'CREAR VIAJE'),
                 ),
               )
             ],

@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import '../../../features/lotes/presentation/providers/lote_provider.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -143,7 +144,14 @@ class PaqueteDetalleModal extends ConsumerWidget {
                               backgroundColor: Colors.transparent,
                               builder: (context) => ModalFijarUbicacion(idPaquete: paquete.id),
                             ).then((_) {
+                              // 1. Refresca el detalle del paquete
                               ref.invalidate(paqueteDetalleProvider(paqueteId));
+                              
+                              // 2. MAGIA: Refresca el Mapa del Viaje automáticamente
+                              if (paquete.idLoteReparto != null) {
+                                ref.invalidate(rutaRepartoPorLoteProvider(paquete.idLoteReparto!));
+                                ref.invalidate(loteDetalleProvider(paquete.idLoteReparto!));
+                              }
                             });
                           },
                           icon: const Icon(Icons.add_location_alt),
@@ -177,7 +185,14 @@ class PaqueteDetalleModal extends ConsumerWidget {
                                   backgroundColor: Colors.transparent,
                                   builder: (context) => ModalFijarUbicacion(idPaquete: paquete.id),
                                 ).then((_) {
+                                  // 1. Refresca el detalle del paquete
                                   ref.invalidate(paqueteDetalleProvider(paquete.id));
+                                  
+                                  // 2. Refresca el Mapa del Viaje automáticamente
+                                  if (paquete.idLoteReparto != null) {
+                                    ref.invalidate(rutaRepartoPorLoteProvider(paquete.idLoteReparto!));
+                                    ref.invalidate(loteDetalleProvider(paquete.idLoteReparto!));
+                                  }
                                 });
                               },
                               icon: const Icon(Icons.edit_location_alt, size: 16, color: AppColors.primary),

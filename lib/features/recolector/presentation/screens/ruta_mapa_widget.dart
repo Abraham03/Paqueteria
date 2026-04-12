@@ -9,78 +9,6 @@ class RutaMapaWidget extends StatelessWidget {
 
   const RutaMapaWidget({super.key, required this.paradas});
 
-  List<LatLng> _decodificarPolyline(String encoded) {
-    if (encoded.isEmpty) return [];
-    
-    List<LatLng> poly = [];
-    int index = 0, len = encoded.length;
-    int lat = 0, lng = 0;
-
-    try {
-      while (index < len) {
-        int b, shift = 0, result = 0;
-        do {
-          b = encoded.codeUnitAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20);
-        int dlat = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-        lat += dlat;
-
-        shift = 0;
-        result = 0;
-        do {
-          b = encoded.codeUnitAt(index++) - 63;
-          result |= (b & 0x1f) << shift;
-          shift += 5;
-        } while (b >= 0x20);
-        int dlng = ((result & 1) != 0 ? ~(result >> 1) : (result >> 1));
-        lng += dlng;
-
-        poly.add(LatLng(lat / 100000.0, lng / 100000.0));
-      }
-    } catch (e) {
-      debugPrint("Error decodificando polyline: $e");
-    }
-    return poly;
-  }
-
-  List<LatLng> _extraerCaminoReal() {
-    if (paradas.isEmpty) return [];
-
-    List<LatLng> caminoCompleto = [];
-    Set<String> polylinesVistas = {};
-
-    // Ordenamos las paradas por orden_visita para pegar los pedazos de carretera en el orden correcto
-    final paradasOrdenadas = List.from(paradas);
-    paradasOrdenadas.sort((a, b) => (a['orden_visita'] ?? 999).compareTo(b['orden_visita'] ?? 999));
-
-    for (var p in paradasOrdenadas) {
-      final polyStr = p['ruta_polyline']?.toString() ?? '';
-      
-      // Si la parada tiene una línea azul y no la hemos decodificado antes...
-      if (polyStr.length > 20 && !polylinesVistas.contains(polyStr)) {
-        polylinesVistas.add(polyStr);
-        // Pegamos este pedazo de carretera al camino total
-        caminoCompleto.addAll(_decodificarPolyline(polyStr));
-      }
-    }
-
-    if (caminoCompleto.isEmpty) {
-      // Fallback: Si Mapbox falló por completo, unimos los puntos con líneas rectas
-      final fallback = paradas.where((p) => p['id'] != 'END_FORZADO').toList();
-      fallback.sort((a, b) => (a['orden_visita'] ?? 999).compareTo(b['orden_visita'] ?? 999));
-      
-      return fallback.map((p) => LatLng(
-        double.tryParse(p['latitud'].toString()) ?? 0.0, 
-        double.tryParse(p['longitud'].toString()) ?? 0.0
-      )).toList();
-    }
-
-    return caminoCompleto;
-  }
-
-  // --- ACTUALIZADO: Dibuja exactamente leyendo el ID (START/END) ---
   List<Marker> _construirMarcadores() {
     int contador = 1;
     List<Marker> marcadoresList = [];
@@ -90,20 +18,20 @@ class RutaMapaWidget extends StatelessWidget {
       final lat = double.tryParse(p['latitud'].toString()) ?? 0.0;
       final lng = double.tryParse(p['longitud'].toString()) ?? 0.0;
       
-      // 1. Si es el INICIO, dibujamos la Tienda
+      // 1. Tienda (Inicio)
       if (id == 'START') {
         marcadoresList.add(Marker(
           point: LatLng(lat, lng),
           width: 45, height: 45,
           child: Container(
             decoration: BoxDecoration(color: Colors.black87, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)),
-            child: const Icon(Icons.home, color: Colors.white, size: 20),
+            child: const Icon(Icons.store, color: Colors.white, size: 20), // Cambiado a Icono de Tienda para más claridad
           ),
         ));
-        continue; // Saltamos al siguiente punto
+        continue; 
       }
 
-      // 2. Si es el DESTINO, dibujamos la Bandera
+      // 2. Bandera (Destino)
       if (id == 'END' || id == 'END_FORZADO') {
         marcadoresList.add(Marker(
           point: LatLng(lat, lng),
@@ -113,20 +41,21 @@ class RutaMapaWidget extends StatelessWidget {
             child: const Icon(Icons.flag, color: Colors.white, size: 20),
           ),
         ));
-        continue; // Saltamos al siguiente punto
+        continue; 
       }
 
-      // 3. Lógica original para los PAQUETES
-      final recolectada = p['estatus'] == 'Recolectada';
-      final bool esDesordenada = p['orden_visita'] == 999;
+      // 3. Pines de Paradas
+      // Al haber eliminado la optimización, todas las paradas simplemente tendrán su número o un check si ya se completaron.
+      final bool completada = p['estatus'] == 'Recolectada' || p['estatus_paquete'] == 'Entregado'; 
+      // NOTA: Revisamos ambos estatus por si el mapa se usa en Reparto o en Recolección.
 
-      Color colorFondo = recolectada ? AppColors.success : (esDesordenada ? Colors.amber : AppColors.primary);
-      Widget iconoInterno = recolectada
+      Color colorFondo = completada ? AppColors.success : AppColors.primary;
+      Widget iconoInterno = completada
           ? const Icon(Icons.check, color: Colors.white, size: 18)
           : Text(
-              esDesordenada ? "!" : "${contador++}", 
-              style: TextStyle(
-                  color: esDesordenada ? Colors.black87 : Colors.white,
+              "${contador++}", 
+              style: const TextStyle(
+                  color: Colors.white,
                   fontSize: 13,
                   fontWeight: FontWeight.bold),
             );
@@ -162,12 +91,11 @@ class RutaMapaWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     if (paradas.isEmpty) return const SizedBox.shrink();
 
-    final caminoReal = _extraerCaminoReal();
-    
     final allPoints = paradas.map((p) => LatLng(
         double.tryParse(p['latitud'].toString()) ?? 0.0, 
         double.tryParse(p['longitud'].toString()) ?? 0.0
       )).toList();
+      
     final bounds = allPoints.length > 1 ? LatLngBounds.fromPoints(allPoints) : null;
 
     return Container(
@@ -202,19 +130,8 @@ class RutaMapaWidget extends StatelessWidget {
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.techsolutions.paqueteria', 
             ),
-            PolylineLayer(
-              polylines: [
-                Polyline(
-                  points: caminoReal,
-                  strokeWidth: 6.0, 
-                  color: AppColors.primary.withValues(alpha: 0.85), 
-                  strokeJoin: StrokeJoin.round, 
-                  strokeCap: StrokeCap.round, 
-                ),
-              ],
-            ),
+            // Se eliminó por completo el PolylineLayer (la línea de ruta)
             MarkerLayer(
-              // Ahora construimos los marcadores sin necesidad de mandarle el caminoReal
               markers: _construirMarcadores(), 
             ),
           ],
