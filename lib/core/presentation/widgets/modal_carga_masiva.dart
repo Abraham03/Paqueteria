@@ -26,19 +26,37 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
   String _statusFilter = 'Todos'; 
   final Set<int> _selectedIds = {}; 
   bool _isLoading = false;
+  bool _isInit = true;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_isInit) {
+      // PRE-CARGA: Buscamos qué paquetes ya están asignados a este lote en la memoria de Riverpod
+      // Para marcarlos como "seleccionados" por defecto al abrir el modal.
+      final todosLosPaquetes = ref.read(paquetesProvider).value ?? [];
+      for (var p in todosLosPaquetes) {
+         if (p.idLoteReparto == widget.lote.id) {
+           _selectedIds.add(p.id);
+         }
+      }
+      _isInit = false;
+    }
+  }
 
   Future<void> _guardarAsignacion() async {
-    if (_selectedIds.isEmpty) return;
+    // Ya no bloqueamos si está vacío, porque quizá el usuario quiere vaciar la camioneta (soltar todos).
     setState(() => _isLoading = true);
     try {
       await ref.read(loteRepositoryProvider).asignarPaquetesALote(widget.lote.id, _selectedIds.toList());
       ref.invalidate(loteDetalleProvider(widget.lote.id));
+      ref.invalidate(rutaRepartoPorLoteProvider(widget.lote.id)); // Refrescamos el mapa/lista
       ref.invalidate(paquetesProvider);
 
       if (!mounted) return; 
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('¡${_selectedIds.length} paquetes asignados!'), backgroundColor: AppColors.success)
+        SnackBar(content: Text('¡Actualización guardada (${_selectedIds.length} paquetes)!'), backgroundColor: AppColors.success)
       );
       
     } catch (e) {
@@ -54,7 +72,10 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
     final todosLosPaquetes = ref.watch(paquetesProvider).value ?? [];
     final estatusPermitido = 'En Bodega México';
     
-    final paquetesDisponibles = todosLosPaquetes.where((p) => p.estatusPaquete == estatusPermitido).toList();
+    // Aquí filtramos: Los que están en bodega listos PARA subir, O los que YA están en la camioneta de ESTE viaje
+    final paquetesDisponibles = todosLosPaquetes.where((p) => 
+        p.estatusPaquete == estatusPermitido || p.idLoteReparto == widget.lote.id
+    ).toList();
     
     final paquetesFiltrados = PaqueteUtils.filtrar(
       paquetes: paquetesDisponibles, 
@@ -68,7 +89,6 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
 
     return SharedModalLayout(
       titulo: 'Cargar Camioneta',
-      // <-- CORRECCIÓN: SIN EXPANDED -->
       buscador: BuscadorFiltroWidget(
         filterType: _filterType,
         filterOptions: const ['Destino', 'Origen', 'Guía'],
@@ -86,7 +106,7 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text('${paquetesFiltrados.length} listos ($estatusPermitido)', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
+                Text('${paquetesFiltrados.length} paquetes disponibles', style: TextStyle(color: Colors.grey.shade600, fontWeight: FontWeight.bold)),
                 if (paquetesFiltrados.isNotEmpty)
                   Row(
                     children: [
@@ -112,7 +132,7 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
         ],
       ),
       listado: paquetesFiltrados.isEmpty
-        ? Center(child: Text('No hay paquetes en "$estatusPermitido" que coincidan.', style: const TextStyle(color: Colors.grey)))
+        ? const Center(child: Text('No hay paquetes disponibles que coincidan.', style: TextStyle(color: Colors.grey)))
         : ListView.builder(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             itemCount: paquetesFiltrados.length,
@@ -159,16 +179,16 @@ class _ModalCargaMasivaState extends ConsumerState<ModalCargaMasiva> {
           height: 56,
           child: ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: _selectedIds.isEmpty ? Colors.grey : AppColors.primary,
+              backgroundColor: AppColors.primary,
             ),
-            onPressed: _selectedIds.isEmpty || _isLoading ? null : _guardarAsignacion,
+            onPressed: _isLoading ? null : _guardarAsignacion,
             child: _isLoading 
                 ? const SizedBox(
                     height: 24, 
                     width: 24, 
                     child: CircularProgressIndicator(color: Colors.white, strokeWidth: 3)
                   )
-                : Text('ASIGNAR ${_selectedIds.length} PAQUETES'),
+                : Text('GUARDAR CARGA (${_selectedIds.length} PAQUETES)'),
           ),
         ),
       ),

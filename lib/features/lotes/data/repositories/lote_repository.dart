@@ -172,4 +172,22 @@ class LoteRepository {
     }
   }
 
+  Future<void> eliminarParada(int id) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/recolecciones/eliminar');
+    try {
+      final response = await http.post(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'id': id}),
+      ).timeout(const Duration(seconds: 15));
+
+      final decodedData = jsonDecode(response.body);
+      if (response.statusCode != 200 || decodedData['status'] == 'error') {
+        throw Exception(decodedData['message'] ?? 'Error al eliminar la parada');
+      }
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+
 }

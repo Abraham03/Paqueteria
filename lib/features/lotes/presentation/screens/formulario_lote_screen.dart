@@ -63,8 +63,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
           : 'Preparación';
     }
     
-    // Ahora SIEMPRE cargamos las paradas si es viaje Principal (sea edición o nuevo)
-    // Usamos microtask para permitir que el widget se construya y el context esté disponible.
     if (_tipoViajeSeleccionado == 'Principal') {
       Future.microtask(() => _cargarParadas(cargarDatosDeEdicion: _esEdicion));
     }
@@ -79,26 +77,27 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     super.dispose();
   }
 
+  // --- FUNCIÓN DE APOYO PARA MOSTRAR MENSAJES ---
+  void _msg(String txt, {Color color = AppColors.error}) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(txt), backgroundColor: color));
+  }
+
   Future<void> _cargarParadas({bool cargarDatosDeEdicion = false}) async {
     setState(() => _cargandoParadas = true);
     try {
       final repo = ref.read(recoleccionRepositoryProvider);
       
-      // 1. Obtenemos las pendientes globales
       final paradasPendientes = await repo.getParadasPendientes();
       List<dynamic> paradasDeEsteViaje = [];
 
-      // 2. Si estamos editando, traemos también los parámetros logísticos y las paradas que YA estaban asignadas
       if (cargarDatosDeEdicion && widget.loteAEditar != null) {
-        // Pedimos al repositorio la lista de paradas que tiene el lote actualmente
         paradasDeEsteViaje = await repo.getParadasPorLote(widget.loteAEditar!.id);
         
-        // Recuperamos los parámetros logísticos analizando la respuesta de las paradas (START/END)
         for (var p in paradasDeEsteViaje) {
            if (p['id'] == 'START') {
               _definirOrigen = true;
               _metodoOrigen = 'Enlace';
-              _enlaceOrigenController.text = "${p['latitud']},${p['longitud']}"; // Coordenadas crudas
+              _enlaceOrigenController.text = "${p['latitud']},${p['longitud']}"; 
            } else if (p['id'] == 'END') {
               _definirDestino = true;
               _metodoDestino = 'Enlace';
@@ -107,7 +106,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               _definirOrigen = true;
               _rutaCircular = true;
            } else if (p['id'] is int || int.tryParse(p['id'].toString()) != null) {
-              // Si es un ID normal, es una parada que pertenece al viaje. La pre-seleccionamos.
               _paradasSeleccionadas.add(p['id'] is int ? p['id'] : int.parse(p['id'].toString()));
            }
         }
@@ -115,13 +113,11 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
 
       if (mounted) {
         setState(() { 
-          // Juntamos las pendientes con las que ya tiene el viaje para mostrarlas todas en la lista
           _paradasDisponibles = [
              ...paradasDeEsteViaje.where((p) => p['id'] != 'START' && p['id'] != 'END' && p['id'] != 'END_FORZADO'), 
              ...paradasPendientes
           ];
           
-          // Eliminamos duplicados por ID por si acaso
           final idsVistos = <int>{};
           _paradasDisponibles.retainWhere((p) {
              final id = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
@@ -133,6 +129,47 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       }
     } catch (e) {
       if (mounted) setState(() => _cargandoParadas = false);
+    }
+  }
+
+  // --- NUEVA FUNCIÓN PARA ELIMINAR PARADA DE LA BASE DE DATOS ---
+  Future<void> _confirmarEliminarParada(int id) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Parada'),
+        content: const Text('¿Estás seguro de que deseas eliminar esta parada permanentemente de la base de datos?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white))
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        setState(() => _cargandoParadas = true);
+        
+        // Aquí llamamos al repositorio correcto: LoteRepository, ya que lo pusiste ahí
+        await ref.read(loteRepositoryProvider).eliminarParada(id);
+        
+        // Removemos el ID de las seleccionadas y volvemos a cargar la lista
+        _paradasSeleccionadas.remove(id);
+        await _cargarParadas(cargarDatosDeEdicion: _esEdicion);
+        
+        if (mounted) {
+          _msg('Parada eliminada correctamente', color: Colors.green);
+        }
+      } catch (e) {
+        if (mounted) {
+          _msg(e.toString());
+          setState(() => _cargandoParadas = false);
+        }
+      }
     }
   }
 
@@ -164,31 +201,24 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   Map<String, double>? _extraerCoordenadasDesdeEnlace(String enlace) {
     if (enlace.isEmpty) return null;
     
-    // Si ya son coordenadas crudas (ej. "20.44,-99.16") que cargó la edición
     final rawDirectRegex = RegExp(r'^([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)$');
     final matchDirect = rawDirectRegex.firstMatch(enlace.trim());
-    if (matchDirect != null) {
-      return {'lat': double.parse(matchDirect.group(1)!), 'lng': double.parse(matchDirect.group(2)!)};
-    }
+    if (matchDirect != null) return {'lat': double.parse(matchDirect.group(1)!), 'lng': double.parse(matchDirect.group(2)!)};
 
     final googleMapsRegex = RegExp(r'@([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
     final matchGoogle = googleMapsRegex.firstMatch(enlace);
-    if (matchGoogle != null) {
-      return {'lat': double.parse(matchGoogle.group(1)!), 'lng': double.parse(matchGoogle.group(2)!)};
-    }
+    if (matchGoogle != null) return {'lat': double.parse(matchGoogle.group(1)!), 'lng': double.parse(matchGoogle.group(2)!)};
 
     final rawUrlRegex = RegExp(r'([-+]?\d{1,2}\.\d+)%2C([-+]?\d{1,3}\.\d+)');
     final matchUrl = rawUrlRegex.firstMatch(enlace.replaceAll(',', '%2C'));
-    if (matchUrl != null) {
-        return {'lat': double.parse(matchUrl.group(1)!), 'lng': double.parse(matchUrl.group(2)!)};
-    }
+    if (matchUrl != null) return {'lat': double.parse(matchUrl.group(1)!), 'lng': double.parse(matchUrl.group(2)!)};
+
     return null;
   }
 
   Future<void> _guardarLote() async {
     if (!_formKey.currentState!.validate()) return;
     
-    // Ahora exigimos los enlaces también en edición si los switches están activos
     if (_definirOrigen && _metodoOrigen == 'Enlace' && _enlaceOrigenController.text.trim().isEmpty) {
       _msg('Ingresa el enlace de partida'); return;
     }
@@ -204,34 +234,22 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
       if (_definirOrigen) {
         if (_metodoOrigen == 'GPS') {
           final p = await _obtenerGPS(); 
-          latOri = p?.latitude; 
-          lngOri = p?.longitude;
+          latOri = p?.latitude; lngOri = p?.longitude;
         } else { 
           final coords = _extraerCoordenadasDesdeEnlace(_enlaceOrigenController.text.trim());
-          if (coords == null) {
-             _msg('No se detectaron coordenadas válidas en el enlace de origen.');
-             setState(() => _isSaving = false);
-             return;
-          }
-          latOri = coords['lat'];
-          lngOri = coords['lng'];
+          if (coords == null) { _msg('No se detectaron coordenadas válidas en el origen.'); setState(() => _isSaving = false); return; }
+          latOri = coords['lat']; lngOri = coords['lng'];
         }
       }
 
       if (_definirDestino && !_rutaCircular) {
         if (_metodoDestino == 'GPS') {
           final p = await _obtenerGPS(); 
-          latDest = p?.latitude; 
-          lngDest = p?.longitude;
+          latDest = p?.latitude; lngDest = p?.longitude;
         } else { 
           final coords = _extraerCoordenadasDesdeEnlace(_enlaceDestinoController.text.trim());
-          if (coords == null) {
-             _msg('No se detectaron coordenadas válidas en el enlace de destino.');
-             setState(() => _isSaving = false);
-             return;
-          }
-          latDest = coords['lat'];
-          lngDest = coords['lng'];
+          if (coords == null) { _msg('No se detectaron coordenadas válidas en el destino.'); setState(() => _isSaving = false); return; }
+          latDest = coords['lat']; lngDest = coords['lng'];
         }
       }
 
@@ -249,23 +267,14 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
         'ruta_circular': _rutaCircular,
       };
 
-      final idLoteFinal = _esEdicion 
-        ? widget.loteAEditar!.id 
-        : await repository.crearLote(loteData);
+      final idLoteFinal = _esEdicion ? widget.loteAEditar!.id : await repository.crearLote(loteData);
 
       if (_esEdicion) {
         loteData['id'] = idLoteFinal.toString();
         await repository.actualizarLote(loteData);
       }
 
-      // --- ASIGNACIÓN (APLICA PARA CREAR O EDITAR VIAJE PRINCIPAL) ---
-      // Siempre ejecutamos la asignación en viajes principales, para que el servidor sepa si agregamos o quitamos paradas.
       if (_tipoViajeSeleccionado == 'Principal') {
-        // En el backend, asegúrate que "asignarParadas" (RecoleccionController->asignar)
-        // se encargue de "soltar" las paradas que ya no vengan en idsRecolecciones.
-        // Como tu backend actual asigna por IDs, al actualizar el viaje y mandarle una nueva lista, las tomará. 
-        // Nota: Para que sea perfecto al editar, el backend debería desvincular las que no vengan, 
-        // pero por ahora funcionará para AGREGAR nuevas paradas o mantener las existentes.
         await ref.read(recoleccionRepositoryProvider).asignarParadas(
           idLote: idLoteFinal,
           idsRecolecciones: _paradasSeleccionadas.toList(),
@@ -290,10 +299,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
-  }
-
-  void _msg(String txt, {Color color = AppColors.error}) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(txt), backgroundColor: color));
   }
 
   @override
@@ -414,6 +419,11 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                               }
                             });
                           },
+                          secondary: IconButton(
+                            icon: const Icon(Icons.delete_outline, color: Colors.red),
+                            tooltip: 'Eliminar esta parada del sistema',
+                            onPressed: () => _confirmarEliminarParada(id),
+                          ),
                         );
                       },
                     ),
