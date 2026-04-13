@@ -65,4 +65,23 @@ class EvidenciaRepository {
       throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
     }
   }
+
+  Future<void> eliminarEvidenciaFisica(int idEvidencia) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/evidencias/eliminar');
+    try {
+      final response = await http.delete(
+        url,
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode({'id': idEvidencia}),
+      ).timeout(const Duration(seconds: 15));
+
+      final decodedData = jsonDecode(response.body);
+      if (response.statusCode != 200 || decodedData['status'] == 'error') {
+        throw Exception(decodedData['message'] ?? 'Error al eliminar la evidencia');
+      }
+    } catch (e) {
+      throw Exception(e.toString().replaceAll('Exception: ', ''));
+    }
+  }
+  
 }

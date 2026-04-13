@@ -38,7 +38,17 @@ class EvidenciaNotifier extends Notifier<bool> {
     }
   }
 
+  Future<void> eliminarEvidencia(int idEvidencia) async {
+    try {
+      final repo = ref.read(evidenciaRepositoryProvider);
+      await repo.eliminarEvidenciaFisica(idEvidencia);
+    } catch (e) {
+      rethrow;
+    }
+  }
 }
+
+
 
 // 3. El Provider principal
 final evidenciaProvider = NotifierProvider<EvidenciaNotifier, bool>(() {

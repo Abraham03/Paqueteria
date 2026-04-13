@@ -31,7 +31,7 @@ class SelectorUbicacionLogistica extends StatelessWidget {
         SwitchListTile(
           title: Text(titulo, style: const TextStyle(fontWeight: FontWeight.bold)),
           subtitle: Text(subtitulo, style: const TextStyle(fontSize: 12)),
-          activeColor: AppColors.primary,
+          activeThumbColor: AppColors.primary,
           value: value,
           onChanged: onToggle,
         ),

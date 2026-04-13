@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'dart:io';
 import 'package:flutter/material.dart';
 import '../../../features/lotes/presentation/providers/lote_provider.dart';
@@ -14,13 +16,14 @@ import '../../../features/paquetes/presentation/screens/formulario_paquete_scree
 import '../widgets/galeria_evidencias_modal.dart';
 import '../../../features/paquetes/presentation/widgets/modal_fijar_ubicacion.dart';
 
+import '../../../../core/presentation/widgets/pantalla_firma_widget.dart'; 
+
 class PaqueteDetalleModal extends ConsumerWidget {
   final int paqueteId;
   final Color estatusColor;
 
   const PaqueteDetalleModal({super.key, required this.paqueteId, required this.estatusColor});
 
-  // --- FUNCIÓN PARA LLAMADAS ---
   Future<void> _hacerLlamada(String telefono, BuildContext context) async {
     final numeroLimpio = telefono.replaceAll(RegExp(r'[^0-9+]'), '');
     final Uri url = Uri.parse('tel:$numeroLimpio');
@@ -125,9 +128,6 @@ class PaqueteDetalleModal extends ConsumerWidget {
                     ]),
                     const SizedBox(height: 16),
 
-                    // =================================================================
-                    // --- NUEVA SECCIÓN: FIJAR UBICACIÓN ---
-                    // =================================================================
                     if (paquete.latitud == null)
                       SizedBox(
                         width: double.infinity,
@@ -144,10 +144,7 @@ class PaqueteDetalleModal extends ConsumerWidget {
                               backgroundColor: Colors.transparent,
                               builder: (context) => ModalFijarUbicacion(idPaquete: paquete.id),
                             ).then((_) {
-                              // 1. Refresca el detalle del paquete
                               ref.invalidate(paqueteDetalleProvider(paqueteId));
-                              
-                              // 2. MAGIA: Refresca el Mapa del Viaje automáticamente
                               if (paquete.idLoteReparto != null) {
                                 ref.invalidate(rutaRepartoPorLoteProvider(paquete.idLoteReparto!));
                                 ref.invalidate(loteDetalleProvider(paquete.idLoteReparto!));
@@ -185,10 +182,7 @@ class PaqueteDetalleModal extends ConsumerWidget {
                                   backgroundColor: Colors.transparent,
                                   builder: (context) => ModalFijarUbicacion(idPaquete: paquete.id),
                                 ).then((_) {
-                                  // 1. Refresca el detalle del paquete
                                   ref.invalidate(paqueteDetalleProvider(paquete.id));
-                                  
-                                  // 2. Refresca el Mapa del Viaje automáticamente
                                   if (paquete.idLoteReparto != null) {
                                     ref.invalidate(rutaRepartoPorLoteProvider(paquete.idLoteReparto!));
                                     ref.invalidate(loteDetalleProvider(paquete.idLoteReparto!));
@@ -202,7 +196,6 @@ class PaqueteDetalleModal extends ConsumerWidget {
                         ),
                       ),
                     const SizedBox(height: 24),
-                    // =================================================================
                     
                     _buildSeccionTitulo(context, 'Contenido de la Caja', Icons.inventory_2_outlined),
                     if (items.isEmpty)
@@ -242,8 +235,8 @@ class PaqueteDetalleModal extends ConsumerWidget {
                             onPressed: isUploading ? null : () => _mostrarOpcionesDeEvidencia(context, ref, paquete),
                             icon: isUploading 
                                 ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
-                                : const Icon(Icons.camera_alt_outlined),
-                            label: Text(isUploading ? '...' : 'Subir'),
+                                : const Icon(Icons.add_a_photo_outlined),
+                            label: Text(isUploading ? 'Subiendo...' : 'Evidencia'),
                           );
                         }
                       ),
@@ -345,7 +338,7 @@ class PaqueteDetalleModal extends ConsumerWidget {
             children: <Widget>[
               Padding(
                 padding: const EdgeInsets.all(20.0),
-                child: Text('Selecciona el origen', style: Theme.of(context).textTheme.titleLarge),
+                child: Text('Selecciona el tipo de evidencia', style: Theme.of(context).textTheme.titleLarge),
               ),
               ListTile(
                 leading: const Icon(Icons.camera_alt, color: AppColors.accent),
@@ -353,21 +346,42 @@ class PaqueteDetalleModal extends ConsumerWidget {
                 onTap: () async {
                   Navigator.pop(context); 
                   final picker = ImagePicker();
-                  final photo = await picker.pickImage(source: ImageSource.camera, imageQuality: 70, maxWidth: 1200);
+                  final photo = await picker.pickImage(source: ImageSource.camera, imageQuality: 30, maxWidth: 800);
                   if (photo != null && context.mounted) {
-                    await _procesarYSubirFotos(context, ref, paquete, [photo]); 
+                    await _procesarYSubirFotos(context, ref, paquete, [photo], 'FOTO_LEVANTAMIENTO'); 
                   }
                 },
               ),
               ListTile(
                 leading: const Icon(Icons.photo_library, color: AppColors.accent),
-                title: Text('Elegir de la Galería', style: Theme.of(context).textTheme.bodyLarge),
+                title: Text('Elegir foto de la Galería', style: Theme.of(context).textTheme.bodyLarge),
                 onTap: () async {
                   Navigator.pop(context); 
                   final picker = ImagePicker();
-                  final photos = await picker.pickMultiImage(imageQuality: 70, maxWidth: 1200);
+                  final photos = await picker.pickMultiImage(imageQuality: 30, maxWidth: 800);
                   if (photos.isNotEmpty && context.mounted) {
-                    await _procesarYSubirFotos(context, ref, paquete, photos);
+                    await _procesarYSubirFotos(context, ref, paquete, photos, 'FOTO_LEVANTAMIENTO');
+                  }
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.draw, color: AppColors.accent),
+                title: Text('Capturar Firma Digital', style: Theme.of(context).textTheme.bodyLarge),
+                onTap: () async {
+                  Navigator.pop(context);
+                  
+                  final File? firmaFile = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => PantallaFirmaWidget(
+                        nombreDestinatario: paquete.destinatarioNombre,
+                      ),
+                    ),
+                  );
+
+                  if (firmaFile != null && context.mounted) {
+                    final xfile = XFile(firmaFile.path);
+                    await _procesarYSubirFotos(context, ref, paquete, [xfile], 'FIRMA_ENTREGA');
                   }
                 },
               ),
@@ -378,13 +392,19 @@ class PaqueteDetalleModal extends ConsumerWidget {
     );
   }
 
-  Future<void> _procesarYSubirFotos(BuildContext context, WidgetRef ref, PaqueteModel paquete, List<XFile> photos) async {
+  Future<void> _procesarYSubirFotos(BuildContext context, WidgetRef ref, PaqueteModel paquete, List<XFile> photos, String tipoEvidencia) async {
     if (photos.isEmpty) return;
+    
+    // Mostramos un SnackBar inicial indicando que el proceso comenzó
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Subiendo evidencia, por favor espera...'), duration: Duration(seconds: 2)),
+    );
+
     try {
       final List<File> archivosFisicos = photos.map((p) => File(p.path)).toList();
       final exito = await ref.read(evidenciaProvider.notifier).procesarYSubirFotos(
             paquete.id,
-            'FOTO_LEVANTAMIENTO',
+            tipoEvidencia, 
             archivosFisicos,
           );
 
@@ -392,12 +412,22 @@ class PaqueteDetalleModal extends ConsumerWidget {
         ref.invalidate(paqueteDetalleProvider(paquete.id));
         ref.invalidate(paquetesProvider);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('¡${archivosFisicos.length} evidencias subidas!'), backgroundColor: AppColors.success),
+          SnackBar(
+            content: Text(tipoEvidencia == 'FIRMA_ENTREGA' ? '¡Firma guardada correctamente!' : '¡${archivosFisicos.length} evidencias subidas!'), 
+            backgroundColor: AppColors.success,
+            duration: const Duration(seconds: 3),
+          ),
         );
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error al subir: ${e.toString().replaceAll('Exception: ', '')}'), 
+            backgroundColor: AppColors.error,
+            duration: const Duration(seconds: 4),
+          ),
+        );
       }
     }
   }

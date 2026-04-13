@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/constants/api_constants.dart';
-// IMPORTAMOS EL PROVIDER (QUE AHORA USA EL REPO CORRECTAMENTE)
 import '../../../features/evidencias/presentation/providers/evidencia_provider.dart';
 
 class GaleriaEvidenciasModal extends ConsumerWidget {
@@ -11,17 +10,15 @@ class GaleriaEvidenciasModal extends ConsumerWidget {
 
   const GaleriaEvidenciasModal({super.key, required this.paqueteId});
 
-  // --- FUNCIÓN DE UI: VER FOTO EN PANTALLA COMPLETA CON ZOOM ---
   void _verImagenCompleta(BuildContext context, String urlImagen) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
         backgroundColor: Colors.transparent,
-        insetPadding: EdgeInsets.zero, // Ocupa toda la pantalla
+        insetPadding: EdgeInsets.zero, 
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // InteractiveViewer permite hacer "Pellizco" (Pinch to zoom)
             InteractiveViewer(
               panEnabled: true,
               minScale: 0.5,
@@ -54,9 +51,47 @@ class GaleriaEvidenciasModal extends ConsumerWidget {
     );
   }
 
+  // --- NUEVO: FUNCIÓN PARA ELIMINAR LA IMAGEN ---
+  Future<void> _confirmarEliminarEvidencia(BuildContext context, WidgetRef ref, int idEvidencia) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Eliminar Evidencia'),
+        content: const Text('¿Deseas eliminar esta imagen de forma permanente?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: AppColors.error),
+            onPressed: () => Navigator.pop(ctx, true), 
+            child: const Text('Eliminar', style: TextStyle(color: Colors.white))
+          ),
+        ],
+      ),
+    );
+
+    if (confirm == true) {
+      try {
+        // Mostramos un indicador de carga
+        showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
+        
+        await ref.read(evidenciaProvider.notifier).eliminarEvidencia(idEvidencia);
+        
+        if (context.mounted) {
+          Navigator.pop(context); // Cierra el indicador de carga
+          ref.invalidate(evidenciasListProvider(paqueteId)); // Recarga la galería
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Evidencia eliminada'), backgroundColor: AppColors.success));
+        }
+      } catch (e) {
+        if (context.mounted) {
+          Navigator.pop(context); // Cierra el indicador de carga
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString()), backgroundColor: AppColors.error));
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    // La vista solo escucha el estado, no sabe de dónde vienen los datos
     final evidenciasAsync = ref.watch(evidenciasListProvider(paqueteId));
 
     return Container(
@@ -95,30 +130,60 @@ class GaleriaEvidenciasModal extends ConsumerWidget {
                   itemCount: evidencias.length,
                   itemBuilder: (context, index) {
                     final ev = evidencias[index];
-                    
-                    // Ajustamos la URL para apuntar a la raíz pública
                     final dominioBase = ApiConstants.baseUrl.replaceAll('/router.php', '');
                     final urlImagen = '$dominioBase/${ev['url_archivo']}';
+                    final int idEvidencia = int.tryParse(ev['id'].toString()) ?? 0;
 
-                    return GestureDetector(
-                      onTap: () => _verImagenCompleta(context, urlImagen),
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Container(
-                          color: Colors.grey.shade200,
-                          child: Image.network(
-                            urlImagen,
-                            fit: BoxFit.cover,
-                            errorBuilder: (ctx, err, stack) => const Center(
-                              child: Icon(Icons.broken_image, color: Colors.grey, size: 40)
+                    return Stack(
+                      children: [
+                        Positioned.fill(
+                          child: GestureDetector(
+                            onTap: () => _verImagenCompleta(context, urlImagen),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(12),
+                              child: Container(
+                                color: Colors.grey.shade200,
+                                child: Image.network(
+                                  urlImagen,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (ctx, err, stack) => const Center(
+                                    child: Icon(Icons.broken_image, color: Colors.grey, size: 40)
+                                  ),
+                                  loadingBuilder: (ctx, child, progress) {
+                                    if (progress == null) return child;
+                                    return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                                  },
+                                ),
+                              ),
                             ),
-                            loadingBuilder: (ctx, child, progress) {
-                              if (progress == null) return child;
-                              return const Center(child: CircularProgressIndicator(strokeWidth: 2));
-                            },
                           ),
                         ),
-                      ),
+                        // --- BOTÓN FLOTANTE PARA ELIMINAR ---
+                        Positioned(
+                          top: 4,
+                          right: 4,
+                          child: Container(
+                            decoration: const BoxDecoration(
+                              color: Colors.black54,
+                              shape: BoxShape.circle,
+                            ),
+                            child: IconButton(
+                              icon: const Icon(Icons.delete_outline, color: Colors.white, size: 20),
+                              onPressed: () => _confirmarEliminarEvidencia(context, ref, idEvidencia),
+                            ),
+                          ),
+                        ),
+                        // Etiqueta visual para distinguir firmas de fotos
+                        if (ev['tipo_evidencia'] == 'FIRMA_ENTREGA')
+                           Positioned(
+                             bottom: 4, left: 4,
+                             child: Container(
+                               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                               decoration: BoxDecoration(color: AppColors.primary.withValues(alpha:0.8), borderRadius: BorderRadius.circular(4)),
+                               child: const Text('Firma', style: TextStyle(color: Colors.white, fontSize: 10, fontWeight: FontWeight.bold)),
+                             ),
+                           ),
+                      ],
                     );
                   },
                 );
