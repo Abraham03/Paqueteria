@@ -72,6 +72,7 @@ class GaleriaEvidenciasModal extends ConsumerWidget {
     if (confirm == true) {
       try {
         // Mostramos un indicador de carga
+        // ignore: use_build_context_synchronously
         showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
         
         await ref.read(evidenciaProvider.notifier).eliminarEvidencia(idEvidencia);
