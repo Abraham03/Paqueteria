@@ -9,27 +9,81 @@ final paqueteRepositoryProvider = Provider<PaqueteRepository>((ref) {
 
 // 2. Creamos el Notificador Asíncrono (El estándar para peticiones a internet)
 class PaquetesNotifier extends AsyncNotifier<List<PaqueteModel>> {
+
+  int _paginaActual = 1;
+  final int _limite = 15;
+  bool hayMasDatos = true;
+  bool _estaCargandoMas = false;
+  bool get estaCargandoMas => _estaCargandoMas;
+
+  // Variables para recordar los filtros activos
+  String _currentQuery = '';
+  String _currentTipoFiltro = 'Destino';
+  String _currentEstatusFiltro = 'Todos';
   
   @override
   Future<List<PaqueteModel>> build() async {
-    // Esto se ejecuta automáticamente la primera vez que se abre la pantalla
-    return _fetchPaquetes();
+    _paginaActual = 1;
+    hayMasDatos = true;
+    return _fetchPaquetes(page: _paginaActual);
   }
 
-  Future<List<PaqueteModel>> _fetchPaquetes() async {
+  Future<List<PaqueteModel>> _fetchPaquetes({required int page}) async {
     final repository = ref.read(paqueteRepositoryProvider);
-    return await repository.getPaquetes();
+    return await repository.getPaquetes(
+      page: page, 
+      limit: _limite,
+      query: _currentQuery,
+      tipoFiltro: _currentTipoFiltro,
+      estatusFiltro: _currentEstatusFiltro,
+    );
   }
 
-  // Método para recargar la lista manualmente (Pull to refresh)
+  // --- NUEVA FUNCIÓN PARA APLICAR FILTROS ---
+  Future<void> aplicarFiltros({String? query, String? tipo, String? estatus}) async {
+    if (query != null) _currentQuery = query;
+    if (tipo != null) _currentTipoFiltro = tipo;
+    if (estatus != null) _currentEstatusFiltro = estatus;
+
+    // Al cambiar un filtro, reiniciamos la lista desde la página 1
+    _paginaActual = 1;
+    hayMasDatos = true;
+    
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetchPaquetes(page: _paginaActual));
+  }
+
   Future<void> refrescarPaquetes() async {
-    // 1. Limpiamos el caché de los detalles (items) de TODOS los paquetes
+    _paginaActual = 1;
+    hayMasDatos = true;
     ref.invalidate(paqueteDetalleProvider);
     
-    // 2. Recargamos la lista principal
-    ref.invalidateSelf();
+    state = const AsyncValue.loading();
+    state = await AsyncValue.guard(() => _fetchPaquetes(page: _paginaActual));
   }
 
+  Future<void> cargarMasPaquetes() async {
+    if (_estaCargandoMas || !hayMasDatos) return;
+
+    _estaCargandoMas = true;
+    _paginaActual++;
+
+    try {
+      final nuevosPaquetes = await _fetchPaquetes(page: _paginaActual);
+      
+      if (nuevosPaquetes.length < _limite) {
+        hayMasDatos = false; 
+      }
+
+      final listaActual = state.value ?? [];
+      state = AsyncValue.data([...listaActual, ...nuevosPaquetes]);
+      
+    } catch (e) {
+      print("Error cargando más paquetes: $e");
+    } finally {
+      _estaCargandoMas = false;
+    }
+  }
 }
 
   // 3. El Provider principal que observará nuestra pantalla

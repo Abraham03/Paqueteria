@@ -1,8 +1,10 @@
 // ignore_for_file: use_build_context_synchronously
 
+import 'dart:async'; // Necesario para el Timer del Debouncer
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../../core/presentation/widgets/infinite_scroll_list_widget.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
 import '../../domain/models/paquete_model.dart';
@@ -11,10 +13,10 @@ import 'formulario_paquete_screen.dart';
 import '../../../../core/presentation/screens/escaner_screen.dart';
 import '../../../../core/presentation/widgets/paquete_card_widget.dart';
 import '../../../../core/presentation/widgets/buscador_filtro_widget.dart';
-import '../../../../core/utils/paquete_utils.dart'; // <-- IMPORTAMOS EL UTILITARIO DRY
 
 // IMPORTAMOS EL MODAL
 import '../../../../core/presentation/widgets/paquete_detalle_modal.dart';
+
 Color obtenerColorEstatusGlobal(String estatus) {
   if (estatus == 'Recibido USA') return AppColors.accent;
   if (estatus == 'En Bodega México') return AppColors.primary;
@@ -30,9 +32,12 @@ class PaquetesScreen extends ConsumerStatefulWidget {
 }
 
 class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
-  String _searchQuery = '';
+  // Variables locales solo para mantener el estado visual de la UI en los botones
   String _filterType = 'Destino';
-  String _statusFilter = 'Todos'; // <-- NUEVA VARIABLE PARA LOS CHIPS
+  String _statusFilter = 'Todos';
+  
+  // Instanciamos el Debouncer con 500 milisegundos de espera
+  final _debouncer = Debouncer(milliseconds: 500);
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +48,6 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
       appBar: AppBar(
         title: const Text('Paquetes Activos'),
         actions: [
-          // 1. MOVIMOS EL ESCÁNER AQUÍ ARRIBA (Así no lo perdemos)
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
             onPressed: () async {
@@ -73,9 +77,17 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
             child: BuscadorFiltroWidget(
               filterType: _filterType,
               filterOptions: const ['Destino', 'Origen', 'Guía'],
-              onFilterChanged: (val) => setState(() => _filterType = val),
-              onSearchChanged: (val) => setState(() => _searchQuery = val),
-              // PASAMOS LOS NUEVOS PARÁMETROS DEL WIDGET (Sin el escáner)
+              onFilterChanged: (val) {
+                setState(() => _filterType = val);
+                // Le avisamos al servidor que cambió el tipo de filtro
+                ref.read(paquetesProvider.notifier).aplicarFiltros(tipo: val);
+              },
+              onSearchChanged: (val) {
+                // Usamos el debouncer para no saturar el servidor con cada letra
+                _debouncer.run(() {
+                  ref.read(paquetesProvider.notifier).aplicarFiltros(query: val);
+                });
+              },
               statusFilter: _statusFilter,
               statusOptions: const [
                 'Todos', 
@@ -85,11 +97,15 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
                 'En Viaje Reparto', 
                 'Entregado'
               ],
-              onStatusChanged: (val) => setState(() => _statusFilter = val),
+              onStatusChanged: (val) {
+                setState(() => _statusFilter = val);
+                // Le avisamos al servidor que busque por este estatus
+                ref.read(paquetesProvider.notifier).aplicarFiltros(estatus: val);
+              },
             ),
           ),
 
-          // --- LISTA DE PAQUETES ---
+          // --- LISTA DE PAQUETES (CON PAGINACIÓN) ---
           Expanded(
             child: paquetesState.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -112,33 +128,27 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
                 ),
               ),
               data: (paquetes) {
+                // La lista 'paquetes' ya viene filtrada desde el servidor
                 if (paquetes.isEmpty) {
                   return Center(
-                    child: Text('No hay paquetes activos en el sistema', 
+                    child: Text('Ningún paquete coincide con la búsqueda.', 
                       style: Theme.of(context).textTheme.bodyLarge?.copyWith(color: AppColors.textSecondary)),
                   );
-                }
-
-                // 2. USAMOS NUESTRA FUNCIÓN DRY (Ya no hay código espagueti aquí)
-                final paquetesFiltrados = PaqueteUtils.filtrar(
-                  paquetes: paquetes,
-                  query: _searchQuery,
-                  tipoFiltro: _filterType,
-                  estatusFiltro: _statusFilter,
-                );
-
-                if (paquetesFiltrados.isEmpty) {
-                  return const Center(child: Text('Ningún paquete coincide con la búsqueda.', style: TextStyle(color: Colors.grey)));
                 }
 
                 return RefreshIndicator(
                   color: AppColors.accent,
                   onRefresh: () => ref.read(paquetesProvider.notifier).refrescarPaquetes(),
-                  child: ListView.builder(
+                  child: InfiniteScrollListWidget(
                     padding: const EdgeInsets.all(12),
-                    itemCount: paquetesFiltrados.length,
+                    itemCount: paquetes.length, // Usamos la lista directa del servidor
+                    isLoadingMore: ref.watch(paquetesProvider.notifier).estaCargandoMas,
+                    hasMoreData: ref.watch(paquetesProvider.notifier).hayMasDatos,
+                    onLoadMore: () {
+                      ref.read(paquetesProvider.notifier).cargarMasPaquetes();
+                    },
                     itemBuilder: (context, index) {
-                      final paquete = paquetesFiltrados[index];
+                      final paquete = paquetes[index];
                       
                       return PaqueteCardWidget(
                         paquete: paquete,
@@ -200,9 +210,30 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
         builder: (context) => PaqueteDetalleModal(paqueteId: paqueteEncontrado.id, estatusColor: estatusColor),
       );
     } else {
+      // Como el escáner busca en la lista local, si la guía no está en esta página, sugerimos buscarla en el servidor
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se encontró el paquete: $codigo'), backgroundColor: AppColors.error),
+        SnackBar(
+          content: Text('No encontrado en esta página. Intenta buscar "$codigo" en la barra superior.'), 
+          backgroundColor: AppColors.error
+        ),
       );
     }
+  }
+}
+
+// --- CLASE DE APOYO (DEBOUNCER) ---
+// Evita ejecutar una función repetidamente en poco tiempo.
+// Se usa en la barra de búsqueda para esperar a que el usuario termine de teclear.
+class Debouncer {
+  final int milliseconds;
+  Timer? _timer;
+
+  Debouncer({required this.milliseconds});
+
+  void run(VoidCallback action) {
+    if (_timer != null) {
+      _timer!.cancel();
+    }
+    _timer = Timer(Duration(milliseconds: milliseconds), action);
   }
 }

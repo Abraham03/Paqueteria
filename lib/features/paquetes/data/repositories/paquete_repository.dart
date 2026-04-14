@@ -6,23 +6,33 @@ import '../../domain/models/paquete_model.dart';
 import '../../../../core/constants/api_constants.dart';
 class PaqueteRepository {
 
-  Future<List<PaqueteModel>> getPaquetes() async {
-    final url = Uri.parse('${ApiConstants.baseUrl}/paquetes');
+  // Agregamos los parámetros opcionales a la petición HTTP
+  Future<List<PaqueteModel>> getPaquetes({
+    int page = 1, 
+    int limit = 15,
+    String query = '',
+    String tipoFiltro = 'Destino',
+    String estatusFiltro = 'Todos',
+  }) async {
+    
+    // Armamos la URL con todos los filtros
+    final uri = Uri.parse('${ApiConstants.baseUrl}/paquetes').replace(queryParameters: {
+      'page': page.toString(),
+      'limit': limit.toString(),
+      'query': query,
+      'tipoFiltro': tipoFiltro,
+      'estatusFiltro': estatusFiltro,
+    });
+    print('🌍 FLUTTER ESTÁ PIDIENDO: $uri');
+
     try {
-      final response = await http.get(url).timeout(const Duration(seconds: 20));
+      final response = await http.get(uri).timeout(const Duration(seconds: 20));
 
       if (response.statusCode == 200) {
         final decodedData = jsonDecode(response.body);
+        if (decodedData['status'] == 'error') throw Exception(decodedData['message']);
 
-        if (decodedData['status'] == 'error') {
-          throw Exception(decodedData['message']);
-        }
-
-        // 🔥 EL BLINDAJE CONTRA NULOS (Si no hay 'data', usamos [])
-        final List<dynamic> paquetesJson = decodedData['data'] != null 
-            ? List<dynamic>.from(decodedData['data']) 
-            : [];
-
+        final List<dynamic> paquetesJson = decodedData['data'] != null ? List<dynamic>.from(decodedData['data']) : [];
         return paquetesJson.map((json) => PaqueteModel.fromJson(json)).toList();
       } else {
         throw Exception('Error del servidor: ${response.statusCode}');
