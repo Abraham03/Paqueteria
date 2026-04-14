@@ -10,7 +10,7 @@ class RutaMapaWidget extends StatelessWidget {
   const RutaMapaWidget({super.key, required this.paradas});
 
   List<Marker> _construirMarcadores() {
-    int contador = 1;
+    int contadorFallback = 1; // Solo se usa si por alguna razón la BD no manda el orden
     List<Marker> marcadoresList = [];
 
     for (var p in paradas) {
@@ -25,7 +25,7 @@ class RutaMapaWidget extends StatelessWidget {
           width: 45, height: 45,
           child: Container(
             decoration: BoxDecoration(color: Colors.black87, shape: BoxShape.circle, border: Border.all(color: Colors.white, width: 3)),
-            child: const Icon(Icons.store, color: Colors.white, size: 20), // Cambiado a Icono de Tienda para más claridad
+            child: const Icon(Icons.store, color: Colors.white, size: 20),
           ),
         ));
         continue; 
@@ -45,15 +45,17 @@ class RutaMapaWidget extends StatelessWidget {
       }
 
       // 3. Pines de Paradas
-      // Al haber eliminado la optimización, todas las paradas simplemente tendrán su número o un check si ya se completaron.
       final bool completada = p['estatus'] == 'Recolectada' || p['estatus_paquete'] == 'Entregado'; 
-      // NOTA: Revisamos ambos estatus por si el mapa se usa en Reparto o en Recolección.
+      
+      // --- SOLUCIÓN: Usar el orden real de la Base de Datos en el Mapa ---
+      final String numeroParada = p['orden_visita']?.toString() ?? '${contadorFallback}';
+      contadorFallback++;
 
       Color colorFondo = completada ? AppColors.success : AppColors.primary;
       Widget iconoInterno = completada
           ? const Icon(Icons.check, color: Colors.white, size: 18)
           : Text(
-              "${contador++}", 
+              numeroParada, 
               style: const TextStyle(
                   color: Colors.white,
                   fontSize: 13,
@@ -130,7 +132,6 @@ class RutaMapaWidget extends StatelessWidget {
               urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
               userAgentPackageName: 'com.techsolutions.paqueteria', 
             ),
-            // Se eliminó por completo el PolylineLayer (la línea de ruta)
             MarkerLayer(
               markers: _construirMarcadores(), 
             ),

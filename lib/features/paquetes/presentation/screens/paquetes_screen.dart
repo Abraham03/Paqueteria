@@ -7,10 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../../core/presentation/widgets/infinite_scroll_list_widget.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../auth/presentation/providers/auth_provider.dart';
-import '../../domain/models/paquete_model.dart';
 import '../providers/paquete_provider.dart';
 import 'formulario_paquete_screen.dart';
-import '../../../../core/presentation/screens/escaner_screen.dart';
 import '../../../../core/presentation/widgets/paquete_card_widget.dart';
 import '../../../../core/presentation/widgets/buscador_filtro_widget.dart';
 
@@ -48,20 +46,6 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
       appBar: AppBar(
         title: const Text('Paquetes Activos'),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () async {
-              FocusScope.of(context).unfocus();
-              final barcodeScanRes = await Navigator.push<String>(
-                context,
-                MaterialPageRoute(builder: (context) => const EscanerScreen()),
-              );
-              if (barcodeScanRes != null && barcodeScanRes.isNotEmpty) {
-                final listaPaquetes = paquetesState.value ?? [];
-                if (mounted) _procesarCodigo(context, ref, barcodeScanRes, listaPaquetes);
-              }
-            },
-          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.read(paquetesProvider.notifier).refrescarPaquetes(),
@@ -189,36 +173,7 @@ class _PaquetesScreenState extends ConsumerState<PaquetesScreen> {
     );
   }
 
-  void _procesarCodigo(BuildContext context, WidgetRef ref, String codigo, List<PaqueteModel> paquetesActivos) {
-    if (codigo.isEmpty) {
-       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Por favor ingresa un código de guía'), backgroundColor: AppColors.highlight),
-      );
-      return;
-    }
-
-    final resultados = paquetesActivos.where((p) => p.guiaRastreo.toUpperCase() == codigo.toUpperCase());
-
-    if (resultados.isNotEmpty) {
-      final paqueteEncontrado = resultados.first;
-      Color estatusColor = obtenerColorEstatusGlobal(paqueteEncontrado.estatusPaquete);
-      
-      showModalBottomSheet(
-        context: context,
-        isScrollControlled: true,
-        backgroundColor: Colors.transparent,
-        builder: (context) => PaqueteDetalleModal(paqueteId: paqueteEncontrado.id, estatusColor: estatusColor),
-      );
-    } else {
-      // Como el escáner busca en la lista local, si la guía no está en esta página, sugerimos buscarla en el servidor
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('No encontrado en esta página. Intenta buscar "$codigo" en la barra superior.'), 
-          backgroundColor: AppColors.error
-        ),
-      );
-    }
-  }
+  
 }
 
 // --- CLASE DE APOYO (DEBOUNCER) ---

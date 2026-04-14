@@ -80,6 +80,8 @@ class RutaRecoleccionWidget extends ConsumerWidget {
                   final parada = paradasFiltradas[index];
                   final recolectada = parada['estatus'] == 'Recolectada';
 
+                  final String numeroParada = parada['orden_visita']?.toString() ?? '${index + 1}';
+
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     
@@ -100,7 +102,7 @@ class RutaRecoleccionWidget extends ConsumerWidget {
                         alignment: Alignment.center,
                         child: recolectada 
                           ? const Icon(Icons.check, color: Colors.white, size: 20)
-                          : Text('${index + 1}', style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16)),
+                          : Text(numeroParada, style: const TextStyle(color: Colors.black87, fontWeight: FontWeight.bold, fontSize: 16)),
                       ),
                     ),
                     

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/presentation/widgets/modal_carga_masiva.dart';
-import '../../../../core/presentation/widgets/modal_entrega_paquetes.dart';
 import '../../../../core/presentation/widgets/paquete_card_widget.dart';
 import '../../../../core/presentation/widgets/paquete_detalle_modal.dart';
 import '../../../../core/theme/app_colors.dart';
@@ -406,15 +405,9 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
           label: const Text('CARGAR CAMIONETA'),
         );
       }
-      return FloatingActionButton.extended(
-        backgroundColor: AppColors.highlight,
-        foregroundColor: AppColors.surface,
-        onPressed: () {
-          showModalBottomSheet(context: context, isScrollControlled: true, backgroundColor: Colors.transparent, builder: (context) => ModalEntregaPaquetes(lote: lote));
-        },
-        icon: const Icon(Icons.qr_code_scanner),
-        label: const Text('ESCANEAR ENTREGA'),
-      );
+      
+      // SOLUCIÓN AQUÍ: Si es Reparto pero ya no está en preparación, no regresamos nada.
+      return null; 
     }
   }
 
