@@ -69,11 +69,16 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
   }
 
   Future<void> _confirmarEliminacion(BuildContext context, WidgetRef ref, LoteModel lote) async {
+    // Texto dinámico dependiendo del tipo de viaje
+    final String destinoLiberacion = lote.tipoViaje == 'Principal' 
+        ? 'volverán al estatus "Recibido USA"' 
+        : 'regresarán a la "Bodega México"';
+
     final confirmar = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('¿Eliminar Viaje?'),
-        content: Text('Estás a punto de eliminar el viaje "${lote.nombreViaje}".\n\nLos paquetes y paradas asignadas NO se borrarán, pero regresarán a la bodega.\n\nEsta acción no se puede deshacer.'),
+        content: Text('Estás a punto de eliminar el viaje "${lote.nombreViaje}".\n\nLos paquetes y paradas asignadas NO se borrarán, sino que $destinoLiberacion.\n\nEsta acción no se puede deshacer.'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('CANCELAR', style: TextStyle(color: Colors.grey))),
           ElevatedButton(

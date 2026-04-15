@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -80,14 +82,15 @@ class RutaRecoleccionWidget extends ConsumerWidget {
                   final parada = paradasFiltradas[index];
                   final recolectada = parada['estatus'] == 'Recolectada';
 
-                  final String numeroParada = parada['orden_visita']?.toString() ?? '${index + 1}';
+                  // --- SOLUCIÓN ANTIMONSTRUOS: Ocultar el 999 de los viajes viejos ---
+                  final ordenDb = parada['orden_visita'];
+                  final String numeroParada = (ordenDb != null && ordenDb != 999) 
+                      ? ordenDb.toString() 
+                      : '${index + 1}';
 
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     
-                    // =========================================================
-                    // --- CÍRCULO LIMPIO SIN ALERTAS AMARILLAS ---
-                    // =========================================================
                     leading: CircleAvatar(
                       radius: 20,
                       backgroundColor: recolectada ? AppColors.success : Colors.white,

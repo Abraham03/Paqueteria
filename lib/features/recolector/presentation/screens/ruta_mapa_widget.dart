@@ -48,7 +48,7 @@ class RutaMapaWidget extends StatelessWidget {
       final bool completada = p['estatus'] == 'Recolectada' || p['estatus_paquete'] == 'Entregado'; 
       
       // --- SOLUCIÓN: Usar el orden real de la Base de Datos en el Mapa ---
-      final String numeroParada = p['orden_visita']?.toString() ?? '${contadorFallback}';
+      final String numeroParada = p['orden_visita']?.toString() ?? '$contadorFallback';
       contadorFallback++;
 
       Color colorFondo = completada ? AppColors.success : AppColors.primary;
