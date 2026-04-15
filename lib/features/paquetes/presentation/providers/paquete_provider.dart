@@ -102,3 +102,8 @@ final rutaRepartoPorLoteProvider = FutureProvider.family<List<dynamic>, int>((re
   final repository = ref.read(paqueteRepositoryProvider);
   return await repository.getRutaRepartoPorLote(idLote);
 });
+
+final paquetesDisponiblesRepartoProvider = FutureProvider.family<List<PaqueteModel>, int>((ref, idLote) async {
+  final repository = ref.read(paqueteRepositoryProvider);
+  return await repository.getPaquetesDisponiblesReparto(idLote);
+});

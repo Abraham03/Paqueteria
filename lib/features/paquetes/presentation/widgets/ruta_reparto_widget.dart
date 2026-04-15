@@ -58,7 +58,12 @@ class RutaRepartoWidget extends ConsumerWidget {
                   
                   final bool completado = parada['estatus_paquete'] == 'Entregado';
                   final int idReal = int.tryParse(parada['id'].toString().replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-                  final String numeroParada = parada['orden_visita']?.toString() ?? '${index + 1}';
+                  
+                  // --- SOLUCIÓN ANTIMONSTRUOS: Ocultar el 999 ---
+                  final ordenDb = parada['orden_visita'];
+                  final String numeroParada = (ordenDb != null && ordenDb != 999 && ordenDb != '999') 
+                      ? ordenDb.toString() 
+                      : '${index + 1}';
                   
                   return ListTile(
                     contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),

@@ -209,6 +209,24 @@ class PaqueteRepository {
     }
   }
 
+  // --- NUEVA FUNCIÓN PARA EL MODAL DE CARGA MASIVA ---
+  Future<List<PaqueteModel>> getPaquetesDisponiblesReparto(int idLote) async {
+    final url = Uri.parse('${ApiConstants.baseUrl}/paquetes/disponibles-reparto?id_lote=$idLote');
+    try {
+      final response = await http.get(url).timeout(const Duration(seconds: 15));
+      final decodedData = jsonDecode(response.body);
+
+      if (response.statusCode == 200 && decodedData['status'] == 'success') {
+        final List<dynamic> jsonList = decodedData['data'] ?? [];
+        return jsonList.map((json) => PaqueteModel.fromJson(json)).toList();
+      } else {
+        throw Exception(decodedData['message'] ?? 'Error al cargar paquetes disponibles');
+      }
+    } catch (e) {
+      throw Exception('Error de conexión: ${e.toString().replaceAll('Exception: ', '')}');
+    }
+  }
+
 
   // --- AGREGAR PARADA LIBRE ---
   Future<void> crearParadaLibre(int idLote, String enlace, String descripcion) async {
