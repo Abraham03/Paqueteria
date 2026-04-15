@@ -5,7 +5,6 @@ import 'core/theme/app_theme.dart';
 import 'features/auth/presentation/screens/login_screen.dart';
 import 'features/auth/presentation/providers/auth_provider.dart'; // Ajusta la ruta
 // Importa tu pantalla principal (Home / Menú / Paquetes)
-import 'features/paquetes/presentation/screens/paquetes_screen.dart'; // <-- Cambia esto por tu pantalla inicial real
 
 void main() {
   runApp(
