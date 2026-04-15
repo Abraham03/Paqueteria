@@ -20,4 +20,14 @@ class UsuarioModel {
       rol: json['rol'] ?? 'Empleado',
     );
   }
+
+  // --- NUEVO: Método para convertir el objeto de Dart a JSON (Para guardarlo en memoria) ---
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'nombre_completo': nombreCompleto, // Usamos las mismas llaves que en el fromJson
+      'usuario': usuario,
+      'rol': rol,
+    };
+  }
 }
