@@ -105,6 +105,14 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
     }
   }
 
+  // --- NUEVA FUNCIÓN PARA REFRESCAR LA PANTALLA ---
+  void _recargarDatos() {
+    ref.invalidate(loteDetalleProvider(widget.loteId));
+    ref.invalidate(paradasPorLoteProvider(widget.loteId));
+    ref.invalidate(rutaRepartoPorLoteProvider(widget.loteId));
+    ref.invalidate(paquetesProvider);
+  }
+
   @override
   Widget build(BuildContext context) {
     final detalleState = ref.watch(loteDetalleProvider(widget.loteId));
@@ -138,7 +146,8 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
                     icon: const Icon(Icons.edit_location_alt_outlined),
                     tooltip: 'Editar Viaje',
                     onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)));
+                      Navigator.push(context, MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)))
+                      .then((_) => _recargarDatos());
                     },
                   ),
                   IconButton(
@@ -219,7 +228,8 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
                                 height: 50,
                                 child: OutlinedButton.icon(
                                   onPressed: () {
-                                    Navigator.push(context, MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)));
+                                    Navigator.push(context, MaterialPageRoute(builder: (context) => FormularioLoteScreen(loteAEditar: lote)))
+                                    .then((_) => _recargarDatos());
                                   },
                                   icon: const Icon(Icons.update),
                                   label: const Text('ACTUALIZAR ESTATUS'),
@@ -289,6 +299,7 @@ class _LoteDetalleScreenState extends ConsumerState<LoteDetalleScreen> with Sing
                                   isScrollControlled: true,
                                   backgroundColor: Colors.transparent,
                                   builder: (context) => PaqueteDetalleModal(paqueteId: p.id, estatusColor: AppColors.success),
+                                ).then((_) => ref.invalidate(paquetesProvider)
                                 );
                               },
                             );

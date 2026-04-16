@@ -1,3 +1,5 @@
+// ignore_for_file: use_build_context_synchronously
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
@@ -41,8 +43,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
   bool _definirDestino = false;
   String _metodoDestino = 'Enlace';
 
-  bool _rutaCircular = false;
-
   bool get _esEdicion => widget.loteAEditar != null;
   bool get _todasSeleccionadas => _paradasDisponibles.isNotEmpty && _paradasSeleccionadas.length == _paradasDisponibles.length;
 
@@ -77,7 +77,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     super.dispose();
   }
 
-  // --- FUNCIÓN DE APOYO PARA MOSTRAR MENSAJES ---
   void _msg(String txt, {Color color = AppColors.error}) {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(txt), backgroundColor: color));
   }
@@ -102,9 +101,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               _definirDestino = true;
               _metodoDestino = 'Enlace';
               _enlaceDestinoController.text = "${p['latitud']},${p['longitud']}";
-           } else if (p['id'] == 'END_FORZADO') {
-              _definirOrigen = true;
-              _rutaCircular = true;
            } else if (p['id'] is int || int.tryParse(p['id'].toString()) != null) {
               _paradasSeleccionadas.add(p['id'] is int ? p['id'] : int.parse(p['id'].toString()));
            }
@@ -132,19 +128,30 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     }
   }
 
-  // --- NUEVA FUNCIÓN PARA ELIMINAR PARADA DE LA BASE DE DATOS ---
-  Future<void> _confirmarEliminarParada(int id) async {
+  Future<void> _confirmarEliminarParada(int id, String estatus) async {
+    final bool estaRecolectada = estatus == 'Recolectada';
+
     final confirm = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Eliminar Parada'),
-        content: const Text('¿Estás seguro de que deseas eliminar esta parada permanentemente de la base de datos?'),
+        title: Text(
+          estaRecolectada ? '¡Atención!' : 'Eliminar Parada', 
+          style: TextStyle(color: estaRecolectada ? Colors.red : AppColors.textPrimary, fontWeight: FontWeight.bold)
+        ),
+        content: Text(
+          estaRecolectada 
+            ? 'Esta parada ya tiene un paquete asociado en el sistema.\n\nSi eliminas la parada, también se cancelará el paquete permanentemente.\n\n¿Estás seguro de continuar?'
+            : '¿Estás seguro de que deseas eliminar esta parada permanentemente de la base de datos?'
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancelar')),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false), 
+            child: const Text('Cancelar', style: TextStyle(color: Colors.grey))
+          ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
             onPressed: () => Navigator.pop(ctx, true), 
-            child: const Text('Eliminar', style: TextStyle(color: Colors.white))
+            child: const Text('SÍ, ELIMINAR', style: TextStyle(color: Colors.white))
           ),
         ],
       ),
@@ -153,17 +160,10 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     if (confirm == true) {
       try {
         setState(() => _cargandoParadas = true);
-        
-        // Aquí llamamos al repositorio correcto: LoteRepository, ya que lo pusiste ahí
         await ref.read(loteRepositoryProvider).eliminarParada(id);
-        
-        // Removemos el ID de las seleccionadas y volvemos a cargar la lista
         _paradasSeleccionadas.remove(id);
         await _cargarParadas(cargarDatosDeEdicion: _esEdicion);
-        
-        if (mounted) {
-          _msg('Parada eliminada correctamente', color: Colors.green);
-        }
+        if (mounted) _msg('Parada eliminada correctamente', color: Colors.green);
       } catch (e) {
         if (mounted) {
           _msg(e.toString());
@@ -198,24 +198,6 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
     });
   }
 
-  Map<String, double>? _extraerCoordenadasDesdeEnlace(String enlace) {
-    if (enlace.isEmpty) return null;
-    
-    final rawDirectRegex = RegExp(r'^([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)$');
-    final matchDirect = rawDirectRegex.firstMatch(enlace.trim());
-    if (matchDirect != null) return {'lat': double.parse(matchDirect.group(1)!), 'lng': double.parse(matchDirect.group(2)!)};
-
-    final googleMapsRegex = RegExp(r'@([-+]?\d{1,2}\.\d+),([-+]?\d{1,3}\.\d+)');
-    final matchGoogle = googleMapsRegex.firstMatch(enlace);
-    if (matchGoogle != null) return {'lat': double.parse(matchGoogle.group(1)!), 'lng': double.parse(matchGoogle.group(2)!)};
-
-    final rawUrlRegex = RegExp(r'([-+]?\d{1,2}\.\d+)%2C([-+]?\d{1,3}\.\d+)');
-    final matchUrl = rawUrlRegex.firstMatch(enlace.replaceAll(',', '%2C'));
-    if (matchUrl != null) return {'lat': double.parse(matchUrl.group(1)!), 'lng': double.parse(matchUrl.group(2)!)};
-
-    return null;
-  }
-
   Future<void> _guardarLote() async {
     if (!_formKey.currentState!.validate()) return;
     
@@ -230,26 +212,26 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
 
     try {
       double? latOri, lngOri, latDest, lngDest;
+      String? enlaceOri, enlaceDest;
 
+      // 1. SOLUCIÓN: Preparamos los datos tal como los espera tu LoteController en PHP
       if (_definirOrigen) {
         if (_metodoOrigen == 'GPS') {
           final p = await _obtenerGPS(); 
           latOri = p?.latitude; lngOri = p?.longitude;
         } else { 
-          final coords = _extraerCoordenadasDesdeEnlace(_enlaceOrigenController.text.trim());
-          if (coords == null) { _msg('No se detectaron coordenadas válidas en el origen.'); setState(() => _isSaving = false); return; }
-          latOri = coords['lat']; lngOri = coords['lng'];
+          // Si es por enlace, se lo pasamos directo a PHP sin extraer nada aquí
+          enlaceOri = _enlaceOrigenController.text.trim();
         }
       }
 
-      if (_definirDestino && !_rutaCircular) {
+      if (_definirDestino) {
         if (_metodoDestino == 'GPS') {
           final p = await _obtenerGPS(); 
           latDest = p?.latitude; lngDest = p?.longitude;
         } else { 
-          final coords = _extraerCoordenadasDesdeEnlace(_enlaceDestinoController.text.trim());
-          if (coords == null) { _msg('No se detectaron coordenadas válidas en el destino.'); setState(() => _isSaving = false); return; }
-          latDest = coords['lat']; lngDest = coords['lng'];
+          // Igual para el destino, pasamos el enlace sucio al backend
+          enlaceDest = _enlaceDestinoController.text.trim();
         }
       }
 
@@ -262,9 +244,11 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
         'ubicacion_actual': _ubicacionController.text.trim(),
         'origen_lat': latOri,
         'origen_lng': lngOri,
+        'origen_enlace': enlaceOri,    // <--- El backend usará este campo si viene
         'destino_lat': latDest,
         'destino_lng': lngDest,
-        'ruta_circular': _rutaCircular,
+        'destino_enlace': enlaceDest,  // <--- El backend usará este campo si viene
+        'ruta_circular': false, 
       };
 
       final idLoteFinal = _esEdicion ? widget.loteAEditar!.id : await repository.crearLote(loteData);
@@ -278,9 +262,9 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
         await ref.read(recoleccionRepositoryProvider).asignarParadas(
           idLote: idLoteFinal,
           idsRecolecciones: _paradasSeleccionadas.toList(),
-          origenLat: latOri, origenLng: lngOri, origenEnlace: null, 
-          destinoLat: latDest, destinoLng: lngDest, destinoEnlace: null,
-          rutaCircular: _rutaCircular,
+          origenLat: latOri, origenLng: lngOri, origenEnlace: enlaceOri, 
+          destinoLat: latDest, destinoLng: lngDest, destinoEnlace: enlaceDest,
+          rutaCircular: false, 
         );
       } 
 
@@ -366,16 +350,8 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
               SelectorUbicacionLogistica(
                 titulo: 'Punto de llegada', subtitulo: '¿Dónde termina el viaje?',
                 value: _definirDestino, metodo: _metodoDestino, controller: _enlaceDestinoController,
-                onToggle: (v) => setState(() { _definirDestino = v; if(v) _rutaCircular = false; }),
+                onToggle: (v) => setState(() => _definirDestino = v),
                 onMetodoChanged: (v) => setState(() => _metodoDestino = v),
-              ),
-
-              SwitchListTile(
-                title: const Text('Ruta Circular', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
-                subtitle: const Text('Termina exactamente donde empezó.'),
-                activeThumbColor: AppColors.primary,
-                value: _rutaCircular,
-                onChanged: _definirOrigen ? (v) => setState(() { _rutaCircular = v; if(v) _definirDestino = false; }) : null,
               ),
 
               if (_tipoViajeSeleccionado == 'Principal') ...[
@@ -405,9 +381,10 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                       itemBuilder: (c, i) {
                         final p = _paradasDisponibles[i];
                         final id = p['id'] is int ? p['id'] : int.tryParse(p['id'].toString()) ?? 0;
+                        final estatusParada = p['estatus'] ?? 'Pendiente'; 
                         return CheckboxListTile(
                           title: Text(p['direccion_texto'] ?? 'Ubicación WhatsApp', style: const TextStyle(fontWeight: FontWeight.w600)),
-                          subtitle: Text('Lat: ${p['latitud']}, Lng: ${p['longitud']}', style: const TextStyle(fontSize: 11)),
+                          subtitle: Text('Lat: ${p['latitud']}, Lng: ${p['longitud']} \nEstatus: $estatusParada', style: const TextStyle(fontSize: 11)),
                           activeColor: AppColors.primary,
                           value: _paradasSeleccionadas.contains(id),
                           onChanged: (v) {
@@ -422,7 +399,7 @@ class _FormularioLoteScreenState extends ConsumerState<FormularioLoteScreen> {
                           secondary: IconButton(
                             icon: const Icon(Icons.delete_outline, color: Colors.red),
                             tooltip: 'Eliminar esta parada del sistema',
-                            onPressed: () => _confirmarEliminarParada(id),
+                            onPressed: () => _confirmarEliminarParada(id, estatusParada),
                           ),
                         );
                       },
